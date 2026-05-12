@@ -4,10 +4,11 @@ import {
   SearchIcon,
   FileTextIcon,
   CheckCircle2Icon,
-  PaperclipIcon,
+  AlertTriangleIcon,
   Music2Icon,
   WalletIcon,
-  ClockIcon } from
+  ArrowRightIcon,
+  ChevronRightIcon } from
 'lucide-react';
 import {
   BarChart,
@@ -16,339 +17,456 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer } from
+  ResponsiveContainer,
+  Cell } from
 'recharts';
 import { Page, PageHeader } from '../components/app-ui/Page';
 import { ContentCard } from '../components/app-ui/ContentCard';
 import { MetricStrip } from '../components/app-ui/MetricCard';
+import { HeroPanel } from '../components/app-ui/HeroPanel';
+import { Button } from '../components/app-ui/Button';
+import { Select } from '../components/app-ui/Select';
+import { ProgressStatusPanel } from '../components/app-ui/ProgressStatusPanel';
+import { ActivityList } from '../components/app-ui/ActivityList';
+import { ExpiringList } from '../components/app-ui/ExpiringList';
 import { StatusBadge } from '../components/app-ui/StatusBadge';
-import { FilterSelect } from '../components/app-ui/FilterBar';
-import { YEAR_OPTIONS } from '../data/options';
+import { RouteKey } from '../data/routes';
 import {
-  MOCK_REVENUE,
-  MOCK_STATUS_BREAKDOWN,
-  MOCK_ACTIVITIES } from
+  VCPMC_STATS,
+  STATUS_BREAKDOWN,
+  RECENT_ACTIVITIES,
+  EXPIRING_CONTRACTS,
+  REVENUE_BY_YEAR } from
 '../data/mockDashboard';
-import { MOCK_CONTRACTS } from '../data/mockContracts';
+import { RECENT_CONTRACTS } from '../data/mockContracts';
 import { formatCurrency, formatDate, formatNumber } from '../lib/format';
+const YEAR_OPTIONS = [
+{
+  value: '2024',
+  label: '2024'
+},
+{
+  value: '2025',
+  label: '2025'
+},
+{
+  value: '2026',
+  label: '2026'
+}];
+
 export function DashboardPage({
   userEmail,
   onNavigate
 
 
 
-}: {userEmail: string;onNavigate: (k: any) => void;}) {
+}: {userEmail: string;onNavigate: (k: RouteKey) => void;}) {
   const [year, setYear] = useState('2026');
-  const totalStatus = MOCK_STATUS_BREAKDOWN.reduce((s, x) => s + x.value, 0);
-  const expiring = MOCK_CONTRACTS.filter((c) => c.status === 'expiring').slice(
-    0,
-    4
-  );
-  const recent = [...MOCK_CONTRACTS].
-  filter((c) => c.status !== 'draft').
-  sort((a, b) => b.signedDate.localeCompare(a.signedDate)).
-  slice(0, 5);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const revenueRevenuePct =
+  (VCPMC_STATS.revenue2026 - VCPMC_STATS.revenue2025) /
+  VCPMC_STATS.revenue2025 *
+  100;
   return (
     <Page>
       <PageHeader
-        title={`Xin chào, ${userEmail}`}
+        title={
+        <>
+            Xin chào, <span className="text-indigo-600">{userEmail}</span>
+          </>
+        }
         description="Tổng quan vận hành hôm nay."
         actions={
-        <FilterSelect
-          label="Năm"
+        <Select
           value={year}
           onChange={setYear}
           options={YEAR_OPTIONS}
-          width="w-32" />
+          className="w-32" />
 
         } />
       
 
       {/* Hero */}
-      <div className="rounded-md border border-slate-200 bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <p className="text-[11px] uppercase tracking-wider text-indigo-300 font-semibold">
-            Tổng quan vận hành hôm nay
-          </p>
-          <h2 className="text-lg sm:text-xl font-semibold mt-1">
-            286 hợp đồng đang quản lý · 12 hành động cần xử lý
-          </h2>
-          <p className="text-sm text-slate-300 mt-1">
-            Có 36 hợp đồng sắp hết hạn trong 30 ngày tới. 5 GCN đang chờ in.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => onNavigate('contracts.create')}
-            className="h-9 px-4 inline-flex items-center gap-2 rounded-md bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-medium">
+      <HeroPanel
+        eyebrow="Tổng quan vận hành"
+        title={
+        <>
+            <span className="tabular-nums">
+              {formatNumber(VCPMC_STATS.totalBackground)}
+            </span>{' '}
+            hợp đồng đang quản lý
+            <span className="text-indigo-300"> · </span>
+            <span className="tabular-nums">27</span> hành động cần xử lý
+          </>
+        }
+        description={`Có ${VCPMC_STATS.expiringIn30Days} hợp đồng sắp hết trong 30 ngày · ${VCPMC_STATS.expiringIn60Days} sắp hết trong 60 ngày · ${formatNumber(VCPMC_STATS.gcnDraft)} GCN bản nháp đang chờ phát hành.`}
+        stats={[
+        {
+          label: 'GCN bản nháp',
+          value: formatNumber(VCPMC_STATS.gcnDraft)
+        },
+        {
+          label: 'Sắp hết 60 ngày',
+          value: formatNumber(VCPMC_STATS.expiringIn60Days)
+        },
+        {
+          label: 'Chờ tái ký',
+          value: formatNumber(VCPMC_STATS.pendingRenewal)
+        }]
+        }
+        actions={
+        <>
+            <Button
+            variant="glassPrimary"
+            size="lg"
+            leftIcon={<FilePlusIcon className="h-4 w-4" />}
+            onClick={() => onNavigate('contracts.create')}>
             
-            <FilePlusIcon className="h-4 w-4" /> Tạo hợp đồng mới
-          </button>
-          <button
-            type="button"
-            onClick={() => onNavigate('search')}
-            className="h-9 px-4 inline-flex items-center gap-2 rounded-md bg-white/10 hover:bg-white/15 text-white text-sm font-medium">
+              Tạo hợp đồng mới
+            </Button>
+            <Button
+            variant="glass"
+            size="lg"
+            leftIcon={<SearchIcon className="h-4 w-4" />}
+            onClick={() => onNavigate('search')}>
             
-            <SearchIcon className="h-4 w-4" /> Tìm kiếm
-          </button>
-        </div>
-      </div>
+              Tìm kiếm
+            </Button>
+          </>
+        } />
+      
 
-      {/* KPIs */}
+      {/* KPIs — all real numbers */}
       <MetricStrip
         items={[
         {
           label: 'Tổng hợp đồng',
-          value: '286',
-          hint: 'Tất cả thời kỳ',
+          value: formatNumber(VCPMC_STATS.totalBackground),
+          tone: 'indigo',
           icon: <FileTextIcon className="h-4 w-4" />,
-          delta: {
-            value: '+12',
-            tone: 'up'
-          }
+          hint: 'Workspace Background'
         },
         {
-          label: 'Đang hiệu lực',
-          value: '184',
-          hint: '64% tổng số',
+          label: 'Còn hiệu lực',
+          value: formatNumber(VCPMC_STATS.active),
+          tone: 'emerald',
           icon: <CheckCircle2Icon className="h-4 w-4" />,
-          delta: {
-            value: '+5',
-            tone: 'up'
-          }
+          hint: '3,6% tổng số'
         },
         {
-          label: 'Phụ lục',
-          value: '47',
-          hint: 'Đã ký năm 2026',
-          icon: <PaperclipIcon className="h-4 w-4" />
+          label: 'Sắp hết 60 ngày',
+          value: formatNumber(VCPMC_STATS.expiringIn60Days),
+          tone: 'amber',
+          icon: <AlertTriangleIcon className="h-4 w-4" />,
+          hint: `Trong đó ${VCPMC_STATS.expiringIn30Days} hết trong 30 ngày`
         },
         {
           label: 'Tác phẩm',
-          value: '12.480',
-          hint: 'Đang quản lý',
-          icon: <Music2Icon className="h-4 w-4" />
+          value: formatNumber(VCPMC_STATS.totalWorks),
+          tone: 'violet',
+          icon: <Music2Icon className="h-4 w-4" />,
+          hint: 'Đang quản lý'
         },
         {
-          label: 'Doanh thu',
-          value: '30,01 tỷ',
-          hint: 'Lũy kế năm',
+          label: 'Doanh thu 2026',
+          value: '1,075 tỷ',
+          tone: 'cyan',
           icon: <WalletIcon className="h-4 w-4" />,
           delta: {
-            value: '+8.4%',
-            tone: 'up'
-          }
+            value: `${revenueRevenuePct.toFixed(1)}%`,
+            tone: 'down'
+          },
+          hint: 'So với 2025'
         }]
         } />
       
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {/* Year compare + Status breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <ContentCard
-          title="Doanh thu theo tháng"
-          description={`Năm ${year} · đơn vị: triệu VND`}
-          className="lg:col-span-2">
+          title="Doanh thu theo năm"
+          description="Đơn vị: tỷ VND · So sánh 2025 và 2026 (lũy kế đến nay)"
+          className="lg:col-span-2"
+          accent
+          actions={
+          <div className="flex items-center gap-3 text-[11px]">
+              <div className="inline-flex items-center gap-1.5 text-zinc-500">
+                <span className="h-2 w-2 rounded-full bg-zinc-400" />
+                2025
+              </div>
+              <div className="inline-flex items-center gap-1.5 text-zinc-500">
+                <span className="h-2 w-2 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500" />
+                2026
+              </div>
+            </div>
+          }>
           
-          <div className="h-64">
+          <div className="h-72">
             <ResponsiveContainer>
               <BarChart
-                data={MOCK_REVENUE}
+                data={REVENUE_BY_YEAR.map((y) => ({
+                  ...y,
+                  // billions VND for cleaner chart axis
+                  revenueBn: y.revenue / 1000000000
+                }))}
                 margin={{
-                  top: 8,
-                  right: 8,
+                  top: 10,
+                  right: 16,
                   left: -10,
                   bottom: 0
-                }}>
+                }}
+                barCategoryGap="35%"
+                onMouseLeave={() => setHoverIdx(null)}>
                 
+                <defs>
+                  <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#818cf8" stopOpacity={1} />
+                    <stop
+                      offset="100%"
+                      stopColor="#6366f1"
+                      stopOpacity={0.85} />
+                    
+                  </linearGradient>
+                  <linearGradient id="barFillHover" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#a78bfa" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#7c3aed" stopOpacity={1} />
+                  </linearGradient>
+                  <linearGradient id="barFillPrev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#d4d4d8" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#a1a1aa" stopOpacity={1} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="#e2e8f0"
+                  stroke="#e4e4e7"
                   vertical={false} />
                 
                 <XAxis
-                  dataKey="month"
-                  stroke="#64748b"
+                  dataKey="year"
+                  stroke="#a1a1aa"
                   fontSize={12}
                   tickLine={false}
-                  axisLine={false} />
+                  axisLine={false}
+                  dy={4} />
                 
                 <YAxis
-                  stroke="#64748b"
-                  fontSize={12}
+                  stroke="#a1a1aa"
+                  fontSize={11}
                   tickLine={false}
-                  axisLine={false} />
+                  axisLine={false}
+                  dx={-4}
+                  tickFormatter={(v) => `${v}`} />
                 
                 <Tooltip
                   cursor={{
-                    fill: '#f1f5f9'
+                    fill: 'rgba(99,102,241,0.06)'
                   }}
                   contentStyle={{
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 6,
-                    fontSize: 12
-                  }} />
+                    border: 'none',
+                    borderRadius: 10,
+                    background: 'rgba(15, 15, 25, 0.92)',
+                    color: '#fff',
+                    fontSize: 12,
+                    padding: '8px 12px',
+                    boxShadow: '0 10px 30px rgba(15,15,25,0.25)'
+                  }}
+                  labelStyle={{
+                    color: '#a5b4fc',
+                    fontWeight: 600,
+                    marginBottom: 2
+                  }}
+                  itemStyle={{
+                    color: '#fff'
+                  }}
+                  formatter={(v: number) => [
+                  `${v.toLocaleString('vi-VN', {
+                    maximumFractionDigits: 2
+                  })} tỷ`,
+                  'Doanh thu']
+                  } />
                 
-                <Bar dataKey="revenue" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                <Bar
+                  dataKey="revenueBn"
+                  radius={[6, 6, 0, 0]}
+                  onMouseEnter={(_, idx) => setHoverIdx(idx)}>
+                  
+                  {REVENUE_BY_YEAR.map((_, i) =>
+                  <Cell
+                    key={i}
+                    fill={
+                    i === REVENUE_BY_YEAR.length - 1 ?
+                    hoverIdx === i ?
+                    'url(#barFillHover)' :
+                    'url(#barFill)' :
+                    'url(#barFillPrev)'
+                    } />
+
+                  )}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </ContentCard>
 
-        <ContentCard title="Tỷ lệ trạng thái hợp đồng">
-          <ul className="flex flex-col gap-3">
-            {MOCK_STATUS_BREAKDOWN.map((s) => {
-              const pct = Math.round(s.value / totalStatus * 100);
-              const colorBar =
-              s.tone === 'success' ?
-              'bg-emerald-500' :
-              s.tone === 'warning' ?
-              'bg-amber-500' :
-              s.tone === 'danger' ?
-              'bg-rose-500' :
-              'bg-slate-400';
-              return (
-                <li key={s.name}>
-                  <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="text-slate-700">{s.name}</span>
-                    <span className="text-slate-500 text-xs tabular-nums">
-                      {formatNumber(s.value)} · {pct}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                    <div
-                      className={`h-full ${colorBar}`}
-                      style={{
-                        width: `${pct}%`
-                      }} />
-                    
-                  </div>
-                </li>);
-
-            })}
-          </ul>
+        <ContentCard
+          title="Tỷ lệ trạng thái hợp đồng"
+          description="Phân bổ toàn bộ workspace Background"
+          accent>
+          
+          <ProgressStatusPanel
+            items={STATUS_BREAKDOWN}
+            mode="relative"
+            helper={`Tổng ${formatNumber(VCPMC_STATS.totalBackground)} hợp đồng. Số "Còn hiệu lực" đã bao gồm ${VCPMC_STATS.expiringIn60Days} đang sắp hết 60 ngày.`} />
+          
         </ContentCard>
       </div>
 
       {/* Lists */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <ContentCard
           title="Hợp đồng sắp hết hạn"
-          description="Trong 30 ngày tới"
+          description="Trong 7 ngày tới · giá trị thật"
           className="lg:col-span-2"
+          padded={false}
           actions={
-          <button
-            type="button"
-            onClick={() => onNavigate('contracts.list')}
-            className="text-xs font-medium text-indigo-600 hover:underline">
+          <Button
+            variant="ghost"
+            size="sm"
+            rightIcon={<ArrowRightIcon className="h-3.5 w-3.5" />}
+            onClick={() => onNavigate('contracts.list')}>
             
               Xem tất cả
-            </button>
-          }
-          padded={false}>
+            </Button>
+          }>
           
-          <ul className="divide-y divide-slate-100">
-            {expiring.map((c) =>
-            <li key={c.id} className="px-5 py-3 flex items-center gap-3">
-                <div className="h-8 w-8 rounded-md bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-                  <ClockIcon className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-900 truncate">
-                    {c.partner}
-                  </p>
-                  <p className="text-xs text-slate-500 truncate font-mono">
-                    {c.contractNo}
-                  </p>
-                </div>
-                <div className="text-right text-xs text-slate-500">
-                  <p>Hết hạn</p>
-                  <p className="text-slate-900 font-medium">
-                    {formatDate(c.effectiveTo)}
-                  </p>
-                </div>
-              </li>
-            )}
-          </ul>
+          <ExpiringList items={EXPIRING_CONTRACTS} />
         </ContentCard>
 
         <ContentCard title="Hoạt động gần đây" padded={false}>
-          <ul className="divide-y divide-slate-100">
-            {MOCK_ACTIVITIES.map((a) =>
-            <li key={a.id} className="px-5 py-3">
-                <p className="text-sm text-slate-700">
-                  <span className="font-medium text-slate-900">{a.actor}</span>{' '}
-                  {a.action}{' '}
-                  <span className="font-mono text-xs text-indigo-600">
-                    {a.target}
-                  </span>
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">{a.time}</p>
-              </li>
-            )}
-          </ul>
+          <ActivityList items={RECENT_ACTIVITIES} />
         </ContentCard>
       </div>
 
-      <ContentCard title="Hợp đồng gần đây" padded={false}>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/60">
-              <th className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600 text-left">
-                Số hợp đồng
-              </th>
-              <th className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600 text-left">
-                Đối tác
-              </th>
-              <th className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600 text-left">
-                Lĩnh vực
-              </th>
-              <th className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600 text-left">
-                Ngày ký
-              </th>
-              <th className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600 text-right">
-                Giá trị
-              </th>
-              <th className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600 text-left">
-                Trạng thái
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {recent.map((c) =>
-            <tr
-              key={c.id}
-              className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
-              
-                <td className="px-5 py-3 font-mono text-xs text-slate-700">
-                  {c.contractNo}
-                </td>
-                <td className="px-5 py-3 text-slate-900">{c.partner}</td>
-                <td className="px-5 py-3 text-slate-700">{c.field}</td>
-                <td className="px-5 py-3 text-slate-700">
-                  {formatDate(c.signedDate)}
-                </td>
-                <td className="px-5 py-3 text-slate-900 text-right tabular-nums">
-                  {formatCurrency(c.value)}
-                </td>
-                <td className="px-5 py-3">
-                  {c.status === 'active' &&
-                <StatusBadge tone="success">Đang hiệu lực</StatusBadge>
-                }
-                  {c.status === 'expiring' &&
-                <StatusBadge tone="warning">Sắp hết hạn</StatusBadge>
-                }
-                  {c.status === 'expired' &&
-                <StatusBadge tone="danger">Hết hạn</StatusBadge>
-                }
-                  {c.status === 'draft' &&
-                <StatusBadge tone="neutral">Bản nháp</StatusBadge>
-                }
-                </td>
+      {/* Recent contracts */}
+      <ContentCard
+        title="Hợp đồng gần đây"
+        description="6 hợp đồng được ký gần nhất từ workspace Background"
+        padded={false}
+        actions={
+        <Button
+          variant="secondary"
+          size="sm"
+          rightIcon={<ArrowRightIcon className="h-3.5 w-3.5" />}
+          onClick={() => onNavigate('contracts.list')}>
+          
+            Xem danh sách
+          </Button>
+        }>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gradient-to-b from-indigo-50/30 via-zinc-50 to-zinc-50/40 border-b border-zinc-200">
+                <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-600 text-left">
+                  Số hợp đồng
+                </th>
+                <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-600 text-left">
+                  Đơn vị / Bảng hiệu
+                </th>
+                <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-600 text-left">
+                  Lĩnh vực
+                </th>
+                <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-600 text-left">
+                  Ngày lập
+                </th>
+                <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-600 text-right">
+                  Giá trị
+                </th>
+                <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-600 text-left">
+                  Trạng thái
+                </th>
+                <th className="w-10 px-2" aria-label="Hành động" />
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {RECENT_CONTRACTS.map((c) =>
+              <tr
+                key={c.id}
+                className="group/row relative border-b border-zinc-100/70 last:border-0 hover:bg-indigo-50/40 transition-colors cursor-pointer">
+                
+                  <td className="relative px-5 py-3.5 align-top">
+                    <span
+                    aria-hidden
+                    className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-indigo-400 to-violet-400 opacity-0 group-hover/row:opacity-100 transition-opacity" />
+                  
+                    <span className="font-mono text-[13px] font-semibold text-indigo-700 group-hover/row:text-indigo-900 group-hover/row:underline underline-offset-2 decoration-indigo-300/60 transition-colors">
+                      {c.contractNo}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5 align-top max-w-xs">
+                    <p className="font-medium text-zinc-900 leading-snug line-clamp-2">
+                      {c.partner}
+                    </p>
+                    {c.brand &&
+                  <p className="text-[12px] text-zinc-500 truncate mt-0.5">
+                        {c.brand}
+                      </p>
+                  }
+                  </td>
+                  <td className="px-5 py-3.5 align-top text-zinc-600">
+                    {c.field}
+                  </td>
+                  <td className="px-5 py-3.5 align-top text-zinc-600 tabular-nums">
+                    {formatDate(c.signedDate)}
+                  </td>
+                  <td className="px-5 py-3.5 align-top text-right tabular-nums">
+                    {c.value == null ?
+                  <span className="text-zinc-400 italic text-xs">
+                        Chưa có
+                      </span> :
+                  c.value === 0 ?
+                  <span className="text-zinc-500 text-xs">Chưa tính</span> :
+
+                  <span className="font-semibold text-zinc-900">
+                        {formatCurrency(c.value)}
+                      </span>
+                  }
+                  </td>
+                  <td className="px-5 py-3.5 align-top">
+                    {c.status === 'active' &&
+                  <StatusBadge tone="success" dot>
+                        Còn hiệu lực
+                      </StatusBadge>
+                  }
+                    {c.status === 'expiring' &&
+                  <StatusBadge tone="warning" dot>
+                        Sắp hết hạn
+                      </StatusBadge>
+                  }
+                    {c.status === 'expired' &&
+                  <StatusBadge tone="danger" dot>
+                        Hết hạn
+                      </StatusBadge>
+                  }
+                    {c.status === 'pending' &&
+                  <StatusBadge tone="orange" dot>
+                        Chờ tái ký
+                      </StatusBadge>
+                  }
+                    {c.status === 'draft' &&
+                  <StatusBadge tone="neutral" dot>
+                        Bản nháp
+                      </StatusBadge>
+                  }
+                  </td>
+                  <td className="pr-4 pl-1 text-right">
+                    <ChevronRightIcon className="h-4 w-4 text-zinc-300 opacity-0 group-hover/row:opacity-100 group-hover/row:text-indigo-500 group-hover/row:translate-x-0.5 transition-all" />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </ContentCard>
     </Page>);
 

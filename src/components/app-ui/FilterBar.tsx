@@ -1,66 +1,69 @@
 import React from 'react';
-import { XIcon } from 'lucide-react';
+import { XIcon, FilterIcon } from 'lucide-react';
 export function FilterBar({
   children,
   onClear,
-  hasActive
+  hasActive,
+  resultSummary
 
 
 
 
-}: {children: React.ReactNode;onClear?: () => void;hasActive?: boolean;}) {
+
+}: {children: React.ReactNode;onClear?: () => void;hasActive?: boolean;resultSummary?: React.ReactNode;}) {
   return (
-    <div className="bg-white border border-slate-200 rounded-md p-3 flex flex-wrap items-end gap-3">
-      <div className="flex flex-wrap items-end gap-3 flex-1 min-w-0">
-        {children}
+    <div className="relative bg-white rounded-2xl ring-1 ring-zinc-900/[0.06] shadow-[0_1px_2px_rgba(15,15,25,0.04),0_2px_6px_rgba(15,15,25,0.03)] overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent" />
+      
+      <div className="p-3 sm:p-4 flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-end gap-3 flex-1 min-w-0">
+          {children}
+        </div>
+        {onClear &&
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={!hasActive}
+          className="h-9 inline-flex items-center gap-1.5 px-3 text-sm font-medium rounded-lg text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-600 transition-colors">
+          
+            <XIcon className="h-3.5 w-3.5" />
+            Xóa lọc
+          </button>
+        }
       </div>
-      {onClear &&
-      <button
-        type="button"
-        onClick={onClear}
-        disabled={!hasActive}
-        className="h-9 inline-flex items-center gap-1 px-3 text-sm rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent">
-        
-          <XIcon className="h-4 w-4" />
-          Xóa lọc
-        </button>
+      {(resultSummary || hasActive) &&
+      <div className="px-4 sm:px-5 py-2.5 border-t border-zinc-100/80 bg-zinc-50/40 flex items-center justify-between gap-3">
+          <div className="text-xs text-zinc-600 flex items-center gap-2">
+            {hasActive &&
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/15">
+                <FilterIcon className="h-2.5 w-2.5" />
+                Đang lọc
+              </span>
+          }
+            {resultSummary}
+          </div>
+        </div>
       }
     </div>);
 
 }
-export function FilterSelect({
+export function FilterField({
   label,
-  value,
-  onChange,
-  options,
-  placeholder = 'Tất cả',
+  children,
   width = 'w-44'
 
 
 
 
-
-
-
-
-
-
-}: {label: string;value: string;onChange: (v: string) => void;options: {value: string;label: string;}[];placeholder?: string;width?: string;}) {
+}: {label: string;children: React.ReactNode;width?: string;}) {
   return (
     <div className={`flex flex-col gap-1 ${width}`}>
-      <label className="text-[11px] font-medium text-slate-600">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 px-2.5 text-sm rounded-md border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400">
-        
-        <option value="">{placeholder}</option>
-        {options.map((o) =>
-        <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        )}
-      </select>
+      <label className="text-[11px] font-semibold text-zinc-600 uppercase tracking-[0.06em]">
+        {label}
+      </label>
+      {children}
     </div>);
 
 }

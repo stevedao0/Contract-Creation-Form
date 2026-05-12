@@ -10,92 +10,89 @@ import {
   BarChart3Icon,
   SearchIcon,
   ShieldIcon,
+  SparklesIcon,
   ChevronDownIcon,
-  ChevronRightIcon } from
+  LockIcon } from
 'lucide-react';
-export type RouteKey =
-'dashboard' |
-'contracts.list' |
-'contracts.create' |
-'contracts.gcn' |
-'appendices' |
-'dispatch' |
-'reports' |
-'search' |
-'admin';
+import { RouteKey } from '../../data/routes';
+import { useAuth } from '../../lib/auth';
 type Item = {
   key: RouteKey;
   label: string;
   icon: React.ReactNode;
-};
-type Group = {
-  label?: string;
-  items: Item[];
-};
-type ParentGroup = {
-  label: string;
-  icon: React.ReactNode;
-  childKeys: RouteKey[];
-  children: Item[];
+  badge?: string;
+  requiredPerm?: string;
 };
 const TOP: Item[] = [
 {
   key: 'dashboard',
   label: 'Dashboard',
-  icon: <LayoutDashboardIcon className="h-4 w-4" />
+  icon: <LayoutDashboardIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'dashboard.view'
 }];
 
-const CONTRACTS: ParentGroup = {
-  label: 'Hợp đồng',
-  icon: <FileTextIcon className="h-4 w-4" />,
-  childKeys: ['contracts.list', 'contracts.create', 'contracts.gcn'],
-  children: [
-  {
-    key: 'contracts.list',
-    label: 'Danh sách hợp đồng',
-    icon: <ListIcon className="h-4 w-4" />
-  },
-  {
-    key: 'contracts.create',
-    label: 'Tạo hợp đồng',
-    icon: <FilePlusIcon className="h-4 w-4" />
-  },
-  {
-    key: 'contracts.gcn',
-    label: 'GCN',
-    icon: <AwardIcon className="h-4 w-4" />
-  }]
-
-};
-const REST: Item[] = [
+const CONTRACTS_CHILDREN: Item[] = [
 {
-  key: 'appendices',
+  key: 'contracts.list',
+  label: 'Danh sách hợp đồng',
+  icon: <ListIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'contracts.view'
+},
+{
+  key: 'contracts.create',
+  label: 'Tạo hợp đồng',
+  icon: <FilePlusIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'contracts.create'
+},
+{
+  key: 'contracts.gcn',
+  label: 'GCN',
+  icon: <AwardIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'certificates.view'
+}];
+
+const BUSINESS_REST: Item[] = [
+{
+  key: 'annexes',
   label: 'Phụ lục',
-  icon: <PaperclipIcon className="h-4 w-4" />
+  icon: <PaperclipIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'contracts.view'
 },
 {
   key: 'dispatch',
   label: 'Công văn',
-  icon: <MailIcon className="h-4 w-4" />
+  icon: <MailIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'contracts.view'
 },
 {
   key: 'reports',
   label: 'Báo cáo',
-  icon: <BarChart3Icon className="h-4 w-4" />
+  icon: <BarChart3Icon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'reports.view'
 },
 {
   key: 'search',
   label: 'Tìm kiếm',
-  icon: <SearchIcon className="h-4 w-4" />
+  icon: <SearchIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'search.view'
 }];
 
-const ADMIN: Item[] = [
+const SYSTEM: Item[] = [
 {
-  key: 'admin',
+  key: 'admin.users',
   label: 'Admin',
-  icon: <ShieldIcon className="h-4 w-4" />
+  icon: <ShieldIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'admin.users.view'
+},
+{
+  key: 'assistant',
+  label: 'AI Assistant',
+  icon: <SparklesIcon className="h-[15px] w-[15px]" />,
+  badge: 'Beta',
+  requiredPerm: 'ai.view'
 }];
 
+const CONTRACT_KEYS: RouteKey[] = [...CONTRACTS_CHILDREN.map((c) => c.key), 'contracts.detail'];
 export function Sidebar({
   current,
   onNavigate
@@ -103,82 +100,158 @@ export function Sidebar({
 
 
 }: {current: RouteKey;onNavigate: (k: RouteKey) => void;}) {
+  const { hasPermission, currentUser } = useAuth();
   const [contractsOpen, setContractsOpen] = useState(
-    CONTRACTS.childKeys.includes(current)
+    CONTRACT_KEYS.includes(current)
   );
-  const renderItem = (it: Item) => {
+  const renderItem = (it: Item, indent = false) => {
+    // Special case for Manager seeing Admin as disabled
+    const isManager = currentUser?.role === 'manager';
+    const isAdminItem = it.key === 'admin.users';
+    const showDisabled = isManager && isAdminItem;
+    const hasAccess = it.requiredPerm ? hasPermission(it.requiredPerm) : true;
+    if (!hasAccess && !showDisabled) return null;
     const active = current === it.key;
+    if (showDisabled) {
+      return (
+        <div
+          key={it.key}
+          className={`group relative w-full flex items-center gap-2.5 ${indent ? 'pl-9 pr-3' : 'px-3'} py-2.5 rounded-lg text-[13px] font-medium text-zinc-600 cursor-not-allowed`}
+          title="Không có quyền">
+          
+          <span className="shrink-0 text-zinc-600 opacity-50">{it.icon}</span>
+          <span className="flex-1 text-left truncate opacity-50">
+            {it.label}
+          </span>
+          <LockIcon className="h-3 w-3 text-zinc-600 opacity-50" />
+        </div>);
+
+    }
     return (
       <button
         key={it.key}
         type="button"
         onClick={() => onNavigate(it.key)}
-        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${active ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'}`}>
+        className={`group relative w-full flex items-center gap-2.5 ${indent ? 'pl-9 pr-3' : 'px-3'} py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 ${active ? 'text-white bg-gradient-to-r from-indigo-500/15 via-violet-500/8 to-transparent ring-1 ring-inset ring-indigo-500/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04]'}`}>
         
+        {active &&
         <span
-          className={`shrink-0 ${active ? 'text-indigo-300' : 'text-slate-400'}`}>
+          aria-hidden
+          className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-r-full bg-gradient-to-b from-indigo-400 to-violet-400 shadow-[0_0_10px_rgba(129,140,248,0.7)]" />
+
+        }
+        <span
+          className={`shrink-0 transition-colors ${active ? 'text-indigo-300' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
           
           {it.icon}
         </span>
-        <span className="truncate">{it.label}</span>
+        <span className="flex-1 text-left truncate">{it.label}</span>
+        {it.badge &&
+        <span className="text-[9px] font-bold uppercase tracking-[0.1em] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 ring-1 ring-inset ring-violet-400/20">
+            {it.badge}
+          </span>
+        }
       </button>);
 
   };
-  const renderGroupLabel = (label: string) =>
-  <p className="px-3 mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+  const groupLabel = (label: string) =>
+  <p className="px-3 mt-6 mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500/80">
       {label}
     </p>;
 
-  const contractsActive = CONTRACTS.childKeys.includes(current);
+  const contractsActive = CONTRACT_KEYS.includes(current);
   return (
-    <aside className="hidden md:flex w-60 shrink-0 flex-col bg-slate-900 text-slate-200 h-screen sticky top-0">
+    <aside className="hidden md:flex w-64 shrink-0 flex-col h-screen sticky top-0 z-30 text-zinc-200 relative">
+      {/* Background */}
+      <div
+        aria-hidden
+        className="absolute inset-0 -z-10"
+        style={{
+          background:
+          'linear-gradient(180deg, #0a0a14 0%, #0a0a14 60%, #0d0d1a 100%)'
+        }} />
+      
+      {/* Top accent glow */}
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-32 -z-10 opacity-60"
+        style={{
+          background:
+          'radial-gradient(ellipse at top, rgba(99,102,241,0.15) 0%, transparent 60%)'
+        }} />
+      
+      {/* Right border */}
+      <div
+        aria-hidden
+        className="absolute top-0 bottom-0 right-0 w-px bg-gradient-to-b from-white/5 via-white/[0.03] to-transparent" />
+      
+
       {/* Brand */}
-      <div className="h-14 px-4 flex items-center gap-2.5 border-b border-slate-800">
-        <div className="h-7 w-7 rounded-md bg-indigo-500 text-white flex items-center justify-center text-xs font-bold">
-          V
+      <div className="h-16 px-4 flex items-center gap-3 border-b border-white/[0.06]">
+        <div className="relative h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+          <span className="text-white text-sm font-bold tracking-tight">V</span>
+          <span
+            aria-hidden
+            className="absolute inset-0 rounded-lg ring-1 ring-inset ring-white/20" />
+          
         </div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold text-white">VCPMC</span>
-          <span className="text-[10px] text-slate-400 uppercase tracking-wider">
+        <div className="flex flex-col leading-tight min-w-0">
+          <span className="text-[13px] font-semibold text-white tracking-tight">
+            VCPMC
+          </span>
+          <span className="text-[10px] text-zinc-500 uppercase tracking-[0.16em]">
             Contract Suite
           </span>
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {renderGroupLabel('Tổng quan')}
-        <div className="flex flex-col gap-0.5">{TOP.map(renderItem)}</div>
-
-        {renderGroupLabel('Nghiệp vụ')}
-        <div className="flex flex-col gap-0.5">
-          {/* Contracts parent */}
-          <button
-            type="button"
-            onClick={() => setContractsOpen((o) => !o)}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${contractsActive ? 'text-white' : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'}`}>
-            
-            <span className="shrink-0 text-slate-400">{CONTRACTS.icon}</span>
-            <span className="flex-1 text-left">{CONTRACTS.label}</span>
-            {contractsOpen ?
-            <ChevronDownIcon className="h-4 w-4 text-slate-500" /> :
-
-            <ChevronRightIcon className="h-4 w-4 text-slate-500" />
-            }
-          </button>
-          {contractsOpen &&
-          <div className="ml-4 pl-2 border-l border-slate-800 flex flex-col gap-0.5 my-1">
-              {CONTRACTS.children.map(renderItem)}
-            </div>
-          }
-          {REST.map(renderItem)}
+      <nav className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-4">
+        {groupLabel('Tổng quan')}
+        <div className="flex flex-col gap-1">
+          {TOP.map((it) => renderItem(it))}
         </div>
 
-        {renderGroupLabel('Hệ thống')}
-        <div className="flex flex-col gap-0.5">{ADMIN.map(renderItem)}</div>
+        {hasPermission('contracts.view') &&
+        <>
+            {groupLabel('Nghiệp vụ')}
+            <div className="flex flex-col gap-1">
+              <button
+              type="button"
+              onClick={() => setContractsOpen((o) => !o)}
+              className={`group w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${contractsActive ? 'text-white' : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04]'}`}>
+              
+                <span
+                className={`shrink-0 ${contractsActive ? 'text-indigo-300' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+                
+                  <FileTextIcon className="h-[15px] w-[15px]" />
+                </span>
+                <span className="flex-1 text-left">Hợp đồng</span>
+                <ChevronDownIcon
+                className={`h-3.5 w-3.5 text-zinc-500 transition-transform duration-200 ${contractsOpen ? 'rotate-0' : '-rotate-90'}`} />
+              
+              </button>
+              <div
+              className={`flex flex-col gap-1 overflow-hidden transition-all duration-200 ${contractsOpen ? 'max-h-56 opacity-100 mt-0.5' : 'max-h-0 opacity-0'}`}>
+              
+                {CONTRACTS_CHILDREN.map((c) => renderItem(c, true))}
+              </div>
+              {BUSINESS_REST.map((it) => renderItem(it))}
+            </div>
+          </>
+        }
+
+        {groupLabel('Hệ thống')}
+        <div className="flex flex-col gap-1">
+          {SYSTEM.map((it) => renderItem(it))}
+        </div>
       </nav>
 
-      <div className="px-4 py-3 border-t border-slate-800 text-[11px] text-slate-500">
-        v1.0.0 · Internal
+      <div className="px-4 py-3 border-t border-white/[0.06] flex items-center justify-between text-[10px] text-zinc-500">
+        <span className="font-medium tracking-wide">v1.0 · Internal</span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
+          Online
+        </span>
       </div>
     </aside>);
 

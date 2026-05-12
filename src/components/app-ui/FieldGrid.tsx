@@ -1,17 +1,18 @@
 import React from 'react';
-type FieldGridProps = {
-  cols?: 1 | 2 | 3;
-  children: React.ReactNode;
-};
-const colsMap: Record<number, string> = {
-  1: 'md:grid-cols-1',
-  2: 'md:grid-cols-2',
-  3: 'md:grid-cols-3'
-};
-export function FieldGrid({ cols = 3, children }: FieldGridProps) {
-  return (
-    <div className={`grid grid-cols-1 ${colsMap[cols]} gap-x-5 gap-y-4`}>
-      {children}
-    </div>);
+export function FieldGrid({
+  cols = 2,
+  children,
+  className = ''
 
+
+
+
+}: {cols?: 1 | 2 | 3;children: React.ReactNode;className?: string;}) {
+  const gridCols =
+  cols === 1 ?
+  'grid-cols-1' :
+  cols === 3 ?
+  'grid-cols-1 md:grid-cols-3' :
+  'grid-cols-1 md:grid-cols-2';
+  return <div className={`grid ${gridCols} gap-4 ${className}`}>{children}</div>;
 }
