@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppShell } from './components/app-ui/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
 import { ContractsListPage } from './pages/ContractsListPage';
@@ -6,6 +6,7 @@ import { ContractDetailPage } from './pages/ContractDetailPage';
 import { ContractEditPage } from './pages/ContractEditPage';
 import { CreateContractPage } from './pages/CreateContractPage';
 import { CertificatesPage } from './pages/CertificatesPage';
+import { CertificatePrintPage } from './pages/CertificatePrintPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { LoginPage } from './pages/LoginPage';
@@ -43,8 +44,44 @@ const PLACEHOLDER_META: Partial<
 };
 function AppContent() {
   const { currentUser, hasPermission, hasDomain } = useAuth();
-  const [route, setRoute] = useState<RouteKey>('dashboard');
-  const [activeContractId, setActiveContractId] = useState<number | null>(null);
+  // Restore route from sessionStorage to preserve state on F5
+  const [route, setRoute] = useState<RouteKey>(() => {
+    const saved = sessionStorage.getItem('app_route');
+    return (saved as RouteKey) || 'dashboard';
+  });
+  const [activeContractId, setActiveContractId] = useState<number | null>(() => {
+    const saved = sessionStorage.getItem('app_active_contract_id');
+    return saved ? Number(saved) : null;
+  });
+  const [pendingPrintContractId, setPendingPrintContractId] = useState<number | null>(() => {
+    const saved = sessionStorage.getItem('app_pending_print_contract_id');
+    return saved ? Number(saved) : null;
+  });
+
+  // Persist route changes to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem('app_route', route);
+  }, [route]);
+
+  // Persist active contract ID
+  useEffect(() => {
+    if (activeContractId) {
+      sessionStorage.setItem('app_active_contract_id', String(activeContractId));
+    } else {
+      sessionStorage.removeItem('app_active_contract_id');
+    }
+  }, [activeContractId]);
+
+  // Persist pending print contract ID
+  useEffect(() => {
+    if (pendingPrintContractId) {
+      sessionStorage.setItem('app_pending_print_contract_id', String(pendingPrintContractId));
+    } else {
+      sessionStorage.removeItem('app_pending_print_contract_id');
+    }
+  }, [pendingPrintContractId]);
+
+  const [latestContractForCreate, setLatestContractForCreate] = useState<import('./data/contractRecords').ContractRecord | undefined>(undefined);
   // Default workspace to first allowed domain
   const allowedWorkspaces = DOMAINS.filter(
     (d) => !d.adminOnly && hasDomain(d.id)
@@ -132,6 +169,11 @@ function AppContent() {
             setActiveContractId(id);
             setRoute('contracts.detail');
           }}
+          onPrintCertificate={(contractId) => {
+            setPendingPrintContractId(contractId);
+            setRoute('contracts.print');
+          }}
+          onCreateNew={(latest) => setLatestContractForCreate(latest)}
         />
       );
     }
@@ -143,6 +185,11 @@ function AppContent() {
           onEdit={(id) => {
             setActiveContractId(id);
             setRoute('contracts.edit');
+          }}
+          onNavigate={setRoute}
+          onCreateGcn={(contractId) => {
+            setPendingPrintContractId(contractId);
+            setRoute('contracts.print');
           }}
         />
       );
@@ -170,11 +217,15 @@ function AppContent() {
             setActiveContractId(id);
             setRoute('contracts.detail');
           }}
+          initialDraftFromContract={latestContractForCreate}
         />
       );
     }
     if (route === 'contracts.gcn') {
       return <CertificatesPage onNavigate={setRoute} />;
+    }
+    if (route === 'contracts.print') {
+      return <CertificatePrintPage onNavigate={setRoute} initialContractId={pendingPrintContractId} onPrinted={() => setPendingPrintContractId(null)} />;
     }
     if (route === 'reports') {
       return <ReportsPage onNavigate={setRoute} />;

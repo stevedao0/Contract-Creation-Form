@@ -78,26 +78,51 @@ export function CertificatePaperPreview({
     certificate_no: String(certificate.certificate_no || '').trim(),
   };
 
-  const boxStyle = (x: number, y: number, width: number, height: number) => ({
-    left: `${x + offsetX}mm`,
-    top: `${y + offsetY}mm`,
+  const fieldOffsets = certificate.fieldOffsets || {};
+  const scopeColAlign = certificate.scopeColAlign || { col1: 'left', col2: 'center', col3: 'center' };
+
+  const getFieldOffset = (key: string) => {
+    const fo = fieldOffsets[key];
+    return { dx: fo?.dx ?? 0, dy: fo?.dy ?? 0 };
+  };
+
+  const getColAlign = (key: string): CertificateAlign => {
+    if (key === 'gcn_scope_col_1_text') return scopeColAlign.col1 ?? 'left';
+    if (key === 'gcn_scope_col_2_text') return scopeColAlign.col2 ?? 'center';
+    if (key === 'gcn_scope_col_3_text') return scopeColAlign.col3 ?? 'center';
+    return 'left';
+  };
+
+  const boxStyle = (x: number, y: number, width: number, height: number, dx: number, dy: number) => ({
+    left: `${x + offsetX + dx}mm`,
+    top: `${y + offsetY + dy}mm`,
     width: `${width}mm`,
     minHeight: `${height}mm`,
   });
 
+  const fieldStyle = (field: CertificateFieldLayout) => {
+    const isScope = field.key.startsWith('gcn_scope_col_');
+    const isScope1 = field.key === 'gcn_scope_col_1_text';
+    const { dx, dy } = getFieldOffset(field.key);
+    const align = isScope ? getColAlign(field.key) : field.align;
+    return {
+      ...boxStyle(field.x, field.y, field.width, field.height, dx, dy),
+      fontSize: `${field.fontSize}pt`,
+      lineHeight: isScope1 ? '1.15' : isScope ? '1.1' : '1.15',
+      fontWeight: field.bold ? 700 : 400,
+      fontFamily: '"Times New Roman", serif',
+    };
+  };
+
   const renderField = (field: CertificateFieldLayout) => {
     const isScope = field.key.startsWith('gcn_scope_col_');
     const isScope1 = field.key === 'gcn_scope_col_1_text';
+    const align = isScope ? getColAlign(field.key) : field.align;
     return (
       <div
         key={field.key}
-        className={`gcn-locked-field ${textAlignClass(field.align)} ${showSafeArea ? 'outline outline-1 outline-sky-300/70' : ''}`}
-        style={{
-          ...boxStyle(field.x, field.y, field.width, field.height),
-          fontSize: `${field.fontSize}pt`,
-          lineHeight: isScope1 ? '1.15' : isScope ? '1.1' : '1.15',
-          fontWeight: field.bold ? 700 : 400,
-        }}
+        className={`gcn-locked-field ${textAlignClass(align)} ${showSafeArea ? 'outline outline-1 outline-sky-300/70' : ''}`}
+        style={fieldStyle(field)}
       >
         {textByKey(certificate, field.key)}
         {showCoordinates ? <span className="gcn-locked-coordinate-tag">{field.x},{field.y}</span> : null}
@@ -108,29 +133,35 @@ export function CertificatePaperPreview({
   const qrImageData = String(certificate.qr_image_data || '').trim();
 
   return (
-    <div className={`gcn-locked-paper-preview ${mode === 'print' ? 'gcn-locked-paper-preview--print' : 'gcn-locked-paper-preview--screen'}`}>
-      <div className={mode === 'print' ? 'gcn-locked-paper-shell--print' : 'gcn-locked-paper-shell--screen'}>
-        <div className={`gcn-locked-paper ${mode === 'print' ? 'gcn-locked-paper--print' : 'gcn-locked-paper--screen'}`}>
+    <div className={`gcn-locked-paper-preview gcn-locked-paper-preview--screen`}>
+      <div className="gcn-locked-paper-shell--screen">
+        <div className={`gcn-locked-paper gcn-locked-paper--screen`}>
           {[...GCN_TOP_BLOCK_LAYOUTS, ...GCN_MID_BLOCK_LAYOUTS].map(renderField)}
 
-          {GCN_BOTTOM_ANCHOR_LAYOUTS.map((field) => (
-            <div
-              key={field.key}
-              className={`gcn-locked-bottom-anchor ${textAlignClass(field.align)} ${showSafeArea ? 'outline outline-1 outline-sky-300/70' : ''}`}
-              style={{
-                ...boxStyle(field.x, field.y, field.width, field.height),
-                fontSize: `${field.key === 'contract_no' ? contractNoFontSize : field.fontSize}pt`,
-                fontWeight: field.bold ? 700 : 400,
-              }}
-            >
-              <span>{anchorTextByKey[field.key] || ''}</span>
-              {showCoordinates ? <span className="gcn-locked-coordinate-tag">{field.x},{field.y}</span> : null}
-            </div>
-          ))}
+          {GCN_BOTTOM_ANCHOR_LAYOUTS.map((field) => {
+            const { dx, dy } = getFieldOffset(field.key);
+            const isContractNo = field.key === 'contract_no';
+            return (
+              <div
+                key={field.key}
+                className={`gcn-locked-bottom-anchor ${textAlignClass(field.align)} ${showSafeArea ? 'outline outline-1 outline-sky-300/70' : ''}`}
+                style={{
+                  ...boxStyle(field.x, field.y, field.width, field.height, dx, dy),
+                  fontSize: `${isContractNo ? contractNoFontSize : field.fontSize}pt`,
+                  fontWeight: field.bold ? 700 : 400,
+                  fontFamily: '"Times New Roman", serif',
+                  lineHeight: '1.15',
+                }}
+              >
+                <span>{anchorTextByKey[field.key] || ''}</span>
+                {showCoordinates ? <span className="gcn-locked-coordinate-tag">{field.x},{field.y}</span> : null}
+              </div>
+            );
+          })}
 
           <div
             className={`gcn-locked-qr-field ${showSafeArea ? 'outline outline-1 outline-sky-300/70' : ''}`}
-            style={boxStyle(GCN_QR_LAYOUT.x, GCN_QR_LAYOUT.y, GCN_QR_LAYOUT.width, GCN_QR_LAYOUT.height)}
+            style={boxStyle(GCN_QR_LAYOUT.x, GCN_QR_LAYOUT.y, GCN_QR_LAYOUT.width, GCN_QR_LAYOUT.height, 0, 0)}
           >
             {qrImageData ? (
               <img src={qrImageData} alt="QR code" className="gcn-locked-qr-image" />
@@ -143,4 +174,3 @@ export function CertificatePaperPreview({
     </div>
   );
 }
-

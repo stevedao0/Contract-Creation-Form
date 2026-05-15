@@ -28,16 +28,13 @@ const dotMap: Record<Tone, string> = {
 export function StatusBadge({
   tone = 'neutral',
   children,
-  dot
-
-
-
-
-}: {tone?: Tone;children: React.ReactNode;dot?: boolean;}) {
+  dot,
+  className
+}: {tone?: Tone;children: React.ReactNode;dot?: boolean;className?: string;}) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${toneMap[tone]}`}>
-      
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${toneMap[tone]} ${className ?? ''}`}>
+
       {dot && <span className={`h-1.5 w-1.5 rounded-full ${dotMap[tone]}`} />}
       {children}
     </span>);

@@ -32,6 +32,81 @@ import {
 } from './contractCreateMapper';
 
 // =============================================================================
+// INVALID ADDRESS PATTERNS (placeholder/key strings that must NEVER be accepted)
+// =============================================================================
+
+const INVALID_ADDRESS_PATTERNS: Set<string> = new Set([
+  // Field/column name references
+  'don_vi_dia_chi',
+  'dia_chi',
+  'legal_address',
+  'legal_full_address',
+  'usage_address',
+  'usage_full_address',
+  'address',
+  'business_address',
+  // CamelCase variants
+  'legalAddress',
+  'usageAddress',
+  'fullAddress',
+]);
+
+// Regex patterns for invalid formats
+const PLACEHOLDER_PATTERN = /^\{\{[^}]+\}\}$/;
+const SENTINEL_PATTERN = /^_{2,}_$/;
+// Minimum realistic address length
+const MIN_ADDRESS_LENGTH = 10;
+
+/**
+ * Check if a string value looks like a real address, not a placeholder/key.
+ *
+ * Returns false if the value is:
+ * - null/undefined or empty
+ * - A field/column name reference (e.g., "don_vi_dia_chi")
+ * - A template placeholder (e.g., "{{don_vi_dia_chi}}")
+ * - A sentinel value (e.g., "__...__")
+ * - Too short to be a real address
+ * - Has no spaces (real addresses typically have street numbers and names)
+ */
+export function isRealAddressValue(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const stripped = String(value).trim();
+  if (!stripped) {
+    return false;
+  }
+
+  // Check against known invalid field/key names (case-insensitive)
+  if (INVALID_ADDRESS_PATTERNS.has(stripped.toLowerCase())) {
+    return false;
+  }
+
+  // Check for {{...}} placeholder pattern
+  if (PLACEHOLDER_PATTERN.test(stripped)) {
+    return false;
+  }
+
+  // Check for __...__ sentinel pattern
+  if (SENTINEL_PATTERN.test(stripped)) {
+    return false;
+  }
+
+  // Too short to be a real address
+  if (stripped.length < MIN_ADDRESS_LENGTH) {
+    return false;
+  }
+
+  // Real addresses typically have spaces (street numbers, names, district names)
+  if (!stripped.includes(' ')) {
+    return false;
+  }
+
+  return true;
+}
+
+// =============================================================================
 // ISO DATE VALIDATION
 // =============================================================================
 
@@ -94,6 +169,22 @@ export const getBlockingValidationErrors = (
 export const getWarningIssues = (
   issues: ValidationIssue[]
 ): ValidationIssue[] => issues.filter((issue) => issue.severity === 'warning');
+
+/**
+ * Add a duplicate contract warning (soft check).
+ * Called when an existing contract with same unit + address + date range is found.
+ */
+export const addDuplicateContractWarning = (
+  issues: ValidationIssue[],
+  existingContractNo: string
+): ValidationIssue[] => [
+  ...issues,
+  {
+    field: 'customer.legalName',
+    message: `Có thể đã tồn tại hợp đồng tương tự: ${existingContractNo}. Kiểm tra trước khi tạo.`,
+    severity: 'warning',
+  },
+];
 
 // =============================================================================
 // COMMON FIELD VALIDATION
@@ -177,9 +268,29 @@ const validateCustomerFields = (draft: CreateContractDraft): ValidationIssue[] =
   if (draft.customer.email.trim() && !isValidEmail(draft.customer.email)) {
     issues.push({
       field: 'customer.email',
-      message: 'Định dạng email không hợp lệ.',
-      severity: 'warning',
+      message: 'Định dạng email không hợp lệ (VD: ten@vcpmc.org).',
+      severity: 'error',
     });
+  }
+
+  // Validate MST (Tax code) — numeric soft check
+  if (draft.customer.taxCode.trim()) {
+    const mstClean = draft.customer.taxCode.replace(/\s|-|\./g, '');
+    const isNumeric = /^\d+$/.test(mstClean);
+    const abnormalLength = mstClean.length > 0 && (mstClean.length < 10 || mstClean.length > 14);
+    if (!isNumeric) {
+      issues.push({
+        field: 'customer.taxCode',
+        message: 'Mã số thuế nên là chuỗi số (10–14 chữ số).',
+        severity: 'warning',
+      });
+    } else if (abnormalLength) {
+      issues.push({
+        field: 'customer.taxCode',
+        message: `Mã số thuế có độ dài bất thường (${mstClean.length} chữ số). Kiểm tra lại.`,
+        severity: 'warning',
+      });
+    }
   }
 
   return issues;
@@ -309,6 +420,16 @@ const validateDomainSpecificFields = (draft: CreateContractDraft): ValidationIss
 
 const validateAreaBasedFields = (areaBased: AreaBasedUsageInfo): ValidationIssue[] => {
   const issues: ValidationIssue[] = [];
+
+  // Validate music usage areas - require at least 1 row
+  const musicAreas = Array.isArray(areaBased.musicUsageAreas) ? areaBased.musicUsageAreas : [];
+  if (musicAreas.length === 0) {
+    issues.push({
+      field: 'areaBased.musicUsageAreas',
+      message: 'Vui lòng thêm ít nhất một khu vực sử dụng âm nhạc.',
+      severity: 'warning',
+    });
+  }
 
   // Validate total area
   if (areaBased.totalAreaM2 < 0) {

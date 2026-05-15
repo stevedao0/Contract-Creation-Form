@@ -132,3 +132,84 @@ export function getCertificateContextDryRun(token: string, id: number): Promise<
 export function getContractCertificateContextDryRun(token: string, id: number): Promise<CertificateContextDryRunResponse> {
   return apiRequest<CertificateContextDryRunResponse>(`/contracts/${id}/certificate-context-dry-run`, { token });
 }
+
+export type CertificateUpdatePayload = {
+  certificate_no?: string | null;
+  certificate_issue_date?: string | null;
+  status?: string | null;
+  organization_name?: string | null;
+  business_registration_no?: string | null;
+  address?: string | null;
+  business_sign_name?: string | null;
+  business_location?: string | null;
+  contract_no?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  gcn_scope_col_1_text?: string | null;
+  gcn_scope_col_2_text?: string | null;
+  gcn_scope_col_3_text?: string | null;
+  qr_image_data?: string | null;
+  offset_x_mm?: number | null;
+  offset_y_mm?: number | null;
+};
+
+export type CertificateUpdateResponse = {
+  ok: boolean;
+  mode: string;
+  message: string;
+  update_enabled: boolean;
+  clone_only_enabled: boolean;
+  write_performed: boolean;
+  certificate_id: number | null;
+  updated_fields: string[];
+  errors: string[];
+  warnings: string[];
+};
+
+export type CertificateSyncResponse = {
+  ok: boolean;
+  mode: string;
+  message: string;
+  sync_enabled: boolean;
+  write_performed: boolean;
+  certificate_id: number | null;
+  synced_fields: string[];
+  errors: string[];
+};
+
+export type CertificatePrintResponse = {
+  ok: boolean;
+  mode: string;
+  message: string;
+  print_enabled: boolean;
+  write_performed: boolean;
+  certificate_id: number | null;
+  print_type: string;
+  status_after: string;
+  print_count: number;
+  printed_at: string | null;
+  printed_by: string | null;
+};
+
+export function updateCertificate(token: string, id: number, payload: CertificateUpdatePayload): Promise<CertificateUpdateResponse> {
+  return apiRequest<CertificateUpdateResponse>(`/certificates/${id}`, {
+    token,
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+export function syncCertificate(token: string, id: number): Promise<CertificateSyncResponse> {
+  return apiRequest<CertificateSyncResponse>(`/certificates/${id}/sync`, {
+    token,
+    method: 'POST',
+  });
+}
+
+export function printCertificate(token: string, id: number, mode: 'test' | 'final' = 'test'): Promise<CertificatePrintResponse> {
+  return apiRequest<CertificatePrintResponse>(`/certificates/${id}/print`, {
+    token,
+    method: 'POST',
+    body: { mode },
+  });
+}

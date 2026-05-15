@@ -57,5 +57,13 @@ export type CertificatePreviewData = {
   qr_image_data?: string;
   offset_x_mm?: number;
   offset_y_mm?: number;
+  /** Per-field pixel offsets keyed by field key (e.g. "gcn_scope_col_1_text") */
+  fieldOffsets?: Record<string, { dx: number; dy: number }>;
+  /** Text alignment overrides for scope columns */
+  scopeColAlign?: {
+    col1?: CertificateAlign;
+    col2?: CertificateAlign;
+    col3?: CertificateAlign;
+  };
 };
 

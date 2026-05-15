@@ -5,6 +5,7 @@ import { formatCurrency, formatDate } from '../../lib/format';
 import { SaveIcon, EyeIcon, PlusCircleIcon } from 'lucide-react';
 type SummaryData = {
   contractNo: string;
+  contractType: string;       // e.g. "Ký mới", "Tái ký", "Hợp đồng khung"
   partner: string;
   brand: string;
   field: string;
@@ -13,6 +14,7 @@ type SummaryData = {
   endDate: string;
   totalValue: number;
   assignee: string;
+  templateName?: string;     // e.g. "export_template_contract_karaoke.docx"
 };
 export function ContractSummaryPanel({
   data,
@@ -64,6 +66,7 @@ export function ContractSummaryPanel({
 
           <div className="p-4 space-y-3">
             <SummaryField label="Số hợp đồng" value={data.contractNo} mono />
+            <SummaryField label="Loại HĐ" value={data.contractType || '—'} />
             <SummaryField label="Đơn vị" value={data.partner} />
             <SummaryField label="Bảng hiệu" value={data.brand} />
             <SummaryField label="Lĩnh vực" value={data.field} />
@@ -72,14 +75,20 @@ export function ContractSummaryPanel({
               label="Hiệu lực"
               value={`${formatDate(data.startDate)} → ${formatDate(data.endDate)}`}
               mono />
-            
             <SummaryField
               label="Tổng tiền"
               value={formatCurrency(data.totalValue)}
               mono
               highlight />
-            
             <SummaryField label="Người thực hiện" value={data.assignee} />
+            {data.templateName && (
+              <SummaryField
+                label="Template"
+                value={data.templateName}
+                mono
+                className="text-xs text-zinc-500"
+              />
+            )}
           </div>
         </div>
       </div>

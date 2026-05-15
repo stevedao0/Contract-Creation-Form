@@ -12,7 +12,8 @@ import {
   ShieldIcon,
   SparklesIcon,
   ChevronDownIcon,
-  LockIcon } from
+  LockIcon,
+  PrinterIcon } from
 'lucide-react';
 import { RouteKey } from '../../data/routes';
 import { useAuth } from '../../lib/auth';
@@ -46,8 +47,14 @@ const CONTRACTS_CHILDREN: Item[] = [
 },
 {
   key: 'contracts.gcn',
-  label: 'GCN',
+  label: 'Giấy chứng nhận',
   icon: <AwardIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'certificates.view'
+},
+{
+  key: 'contracts.print',
+  label: 'In GCN',
+  icon: <PrinterIcon className="h-[15px] w-[15px]" />,
   requiredPerm: 'certificates.view'
 }];
 
@@ -80,9 +87,15 @@ const BUSINESS_REST: Item[] = [
 const SYSTEM: Item[] = [
 {
   key: 'admin.users',
-  label: 'Admin',
+  label: 'Quản lý người dùng',
   icon: <ShieldIcon className="h-[15px] w-[15px]" />,
   requiredPerm: 'admin.users.view'
+},
+{
+  key: 'admin.permissions',
+  label: 'Ma trận phân quyền',
+  icon: <ShieldIcon className="h-[15px] w-[15px]" />,
+  requiredPerm: 'admin.roles.view'
 },
 {
   key: 'assistant',
@@ -107,7 +120,7 @@ export function Sidebar({
   const renderItem = (it: Item, indent = false) => {
     // Special case for Manager seeing Admin as disabled
     const isManager = currentUser?.role === 'manager';
-    const isAdminItem = it.key === 'admin.users';
+    const isAdminItem = it.key === 'admin.users' || it.key === 'admin.permissions';
     const showDisabled = isManager && isAdminItem;
     const hasAccess = it.requiredPerm ? hasPermission(it.requiredPerm) : true;
     if (!hasAccess && !showDisabled) return null;

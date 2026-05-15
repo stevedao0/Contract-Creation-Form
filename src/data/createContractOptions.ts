@@ -70,6 +70,39 @@ export const CREATE_CONTRACT_DOMAIN_GROUP_OPTIONS: {
 // BACKGROUND DOMAIN OPTIONS (all active Background domains)
 // =============================================================================
 
+export type DomainSuggestionTemplate = {
+  areaName: string;
+  scaleDescription: string;
+  musicUsageType: string;
+};
+
+export const DOMAIN_SUGGESTION_TEMPLATES: Record<string, DomainSuggestionTemplate[]> = {
+  KARAOKE: [
+    { areaName: 'Phòng Karaoke', scaleDescription: '', musicUsageType: 'Sử dụng nhạc qua đầu Karaoke' },
+    { areaName: 'Sảnh chờ', scaleDescription: '', musicUsageType: 'Phát nhạc nền' },
+  ],
+  PHONG_THU_AM: [
+    { areaName: 'Phòng thu âm', scaleDescription: '', musicUsageType: 'Biểu diễn âm nhạc trực tiếp' },
+  ],
+  CAFE: [
+    { areaName: 'Khu vực phục vụ khách', scaleDescription: '', musicUsageType: 'Phát nhạc nền' },
+  ],
+  NHA_HANG: [
+    { areaName: 'Sảnh tiệc', scaleDescription: '', musicUsageType: 'Phát nhạc nền' },
+    { areaName: 'Khu vực phục vụ', scaleDescription: '', musicUsageType: 'Phát nhạc nền' },
+  ],
+  KHU_VUI_CHOI: [
+    { areaName: 'Khu trò chơi trung tâm', scaleDescription: '', musicUsageType: 'Phát nhạc nền' },
+  ],
+  KHACH_SAN: [
+    { areaName: 'Sảnh lobby', scaleDescription: '', musicUsageType: 'Phát nhạc nền' },
+    { areaName: 'Khu vực hồ bơi', scaleDescription: '', musicUsageType: 'Phát nhạc nền' },
+  ],
+  CHAM_SOC_SUC_KHOE: [
+    { areaName: 'Khu vực chờ', scaleDescription: '', musicUsageType: 'Phát nhạc nền' },
+  ],
+};
+
 export const CREATE_CONTRACT_BACKGROUND_DOMAIN_OPTIONS: {
   value: BackgroundDomainCode;
   label: string;
@@ -175,18 +208,25 @@ export const CREATE_CONTRACT_RENEWAL_OPTIONS: {
   value: CreateContractRenewalStatus;
   label: string;
 }[] = [
-  { value: 'NEW', label: 'Hợp đồng mới' },
-  { value: 'PENDING_RENEWAL', label: 'Chờ tái ký' },
-  { value: 'RENEWED', label: 'Đã tái ký' },
+  { value: 'NEW', label: 'Ký mới' },
+  { value: 'PENDING_RENEWAL', label: 'Tái ký' },
+  { value: 'FRAME_CONTRACT', label: 'Hợp đồng khung' },
 ];
+
+/** Map contract type to display label */
+export const CONTRACT_TYPE_LABELS: Record<string, string> = {
+  NEW: 'Ký mới',
+  PENDING_RENEWAL: 'Tái ký',
+  FRAME_CONTRACT: 'Hợp đồng khung',
+};
 
 // =============================================================================
 // FIELD CODE OPTIONS
 // =============================================================================
 
 export const CREATE_CONTRACT_FIELD_CODE_OPTIONS = [
-  { value: 'PR', label: 'PR (Karaoke)' },
-  { value: 'PTA', label: 'PTA (Phòng thu âm)' },
+  { value: 'PR', label: 'PR (Quyền biểu diễn)' },
+  { value: 'MR', label: 'MR (Quyền cơ khí)' },
 ];
 
 // =============================================================================
@@ -257,6 +297,16 @@ const MODULE_STATUS_LABELS: Record<string, string> = {
 };
 
 /**
+ * Domain family for calculation modules.
+ * Used to filter modules based on the selected domain.
+ * - 'karaoke': Only for KARAOKE, PHONG_THU_AM domains
+ * - 'kvc': Only for KHU_VUI_CHOI domain
+ * - 'area': Manual modules for CAFE, NHA_HANG, KHACH_SAN domains
+ * - 'any': Works across all domains (e.g. MANUAL_FEE)
+ */
+export type ModuleDomainFamily = 'karaoke' | 'kvc' | 'area' | 'any';
+
+/**
  * Calculation module options for the dropdown.
  */
 export const CALCULATION_MODULE_OPTIONS: {
@@ -264,56 +314,106 @@ export const CALCULATION_MODULE_OPTIONS: {
   label: string;
   description?: string;
   status: 'implemented' | 'planned' | 'disabled' | 'locked';
+  domainFamily: ModuleDomainFamily;
 }[] = [
   {
     value: 'KARAOKE_PHONG',
     label: 'Karaoke Phòng',
     description: 'Tính tiền theo số phòng karaoke',
     status: 'implemented',
+    domainFamily: 'karaoke',
   },
   {
     value: 'KARAOKE_BOX',
     label: 'Karaoke Box',
     description: 'Tính tiền theo số box karaoke',
     status: 'implemented',
+    domainFamily: 'karaoke',
   },
   {
     value: 'KVC_VCPMC_TARIFF',
     label: 'KVC - Biểu giá VCPMC',
-    description: 'Tính tiền theo biểu giá VCPMC (sẽ triển khai phase KVC)',
-    status: 'planned',
+    description: 'Tính tiền theo biểu giá VCPMC cho Khu vui chơi, giải trí',
+    status: 'implemented',
+    domainFamily: 'kvc',
   },
   {
     value: 'KVC_ND17',
     label: 'KVC - NĐ17/2023',
-    description: 'Tính tiền theo Nghị định 17/2023, Phụ lục II, Mục 8',
+    description: 'Tính tiền theo Nghị định 17/2023, Phụ lục II, Mục 8 cho Khu vui chơi',
     status: 'implemented',
+    domainFamily: 'kvc',
   },
   {
     value: 'CAFE',
-    label: 'Cà phê',
-    description: 'Tính tiền cho quán cà phê (sẽ triển khai phase sau)',
-    status: 'planned',
+    label: 'KVC - Cà phê',
+    description: 'Nhập tay tiền bản quyền cho lĩnh vực cà phê',
+    status: 'implemented',
+    domainFamily: 'area',
   },
   {
     value: 'NHA_HANG',
-    label: 'Nhà hàng',
-    description: 'Tính tiền cho nhà hàng (sẽ triển khai phase sau)',
-    status: 'planned',
+    label: 'KVC - Nhà hàng',
+    description: 'Nhập tay tiền bản quyền cho lĩnh vực nhà hàng',
+    status: 'implemented',
+    domainFamily: 'area',
   },
   {
     value: 'KHACH_SAN',
-    label: 'Khách sạn',
-    description: 'Tính tiền cho khách sạn (sẽ triển khai phase sau)',
-    status: 'planned',
+    label: 'KVC - Khách sạn',
+    description: 'Nhập tay tiền bản quyền cho lĩnh vực khách sạn',
+    status: 'implemented',
+    domainFamily: 'area',
+  },
+  {
+    value: 'MANUAL_FEE',
+    label: 'KVC - Nhập tay',
+    description: 'Nhập tay tiền chưa thuế, thuế GTGT, tiền sau thuế (cho mọi lĩnh vực)',
+    status: 'implemented',
+    domainFamily: 'any',
   },
   {
     value: 'CUSTOM_PLACEHOLDER',
     label: 'Tùy chỉnh',
     description: 'Tính tiền tùy chỉnh (chưa triển khai)',
     status: 'disabled',
+    domainFamily: 'any',
   },
 ];
+
+/**
+ * Get modules filtered by domain family.
+ */
+export const getModulesByDomainFamily = (
+  domainFamily: ModuleDomainFamily,
+  options: typeof CALCULATION_MODULE_OPTIONS = CALCULATION_MODULE_OPTIONS
+): typeof CALCULATION_MODULE_OPTIONS => {
+  return options.filter(
+    (m) => m.domainFamily === 'any' || m.domainFamily === domainFamily
+  );
+};
+
+/**
+ * Map domain code to module domain family.
+ */
+export const getDomainFamilyFromDomainCode = (domainCode: BackgroundDomainCode): ModuleDomainFamily => {
+  if (domainCode === 'KARAOKE' || domainCode === 'PHONG_THU_AM') return 'karaoke';
+  if (domainCode === 'KHU_VUI_CHOI') return 'kvc';
+  return 'area';
+};
+
+/**
+ * Check if a module is compatible with a domain.
+ */
+export const isModuleCompatibleWithDomain = (
+  moduleCode: CalculationModuleCode,
+  domainCode: BackgroundDomainCode
+): boolean => {
+  const module = CALCULATION_MODULE_OPTIONS.find((m) => m.value === moduleCode);
+  if (!module) return false;
+  if (module.domainFamily === 'any') return true;
+  return module.domainFamily === getDomainFamilyFromDomainCode(domainCode);
+};
 
 /**
  * Get available modules for the dropdown (implemented only).

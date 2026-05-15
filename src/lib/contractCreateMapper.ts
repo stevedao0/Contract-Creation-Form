@@ -12,6 +12,7 @@
  */
 
 import type {
+  AddressBlock,
   AreaBasedUsageInfo,
   AreaUsageDisplayMode,
   AreaUsageSection,
@@ -25,11 +26,13 @@ import type {
   CreateContractDraft,
   CreateContractRenewalStatus,
   ContractRecordsCandidate,
+  CustomerInfo,
   DbTargetHint,
   KvcPricingMode,
   KaraokeCalculationInput,
   KaraokeCalculationResult,
   KaraokeUsageInfo,
+  MusicUsageArea,
   RoyaltyCalculationLine,
   RoomSection,
   VcpmcTariffInput,
@@ -42,9 +45,50 @@ import {
   FULLY_IMPLEMENTED_DOMAINS,
   KARAOKE_CALC_DOMAINS,
   PLACEHOLDER_ONLY_DOMAINS,
+  buildFullAddress,
 } from './contractCreateTypes';
 
 import type { KvcCalculationResult, KvcNd17Result } from './contractsClient';
+import { numberToVietnameseWords } from '../components/contract/SimpleRoyaltyInput';
+
+// =============================================================================
+// ADDRESS HELPERS (Post-2025 merger)
+// =============================================================================
+
+/**
+ * Build full address from parts.
+ * Format: [addressLine], [ward], [province]
+ * Parts that are empty are skipped.
+ */
+export const buildFullAddressFromParts = (
+  addressLine: string,
+  ward: string,
+  province: string
+): string => {
+  const parts = [addressLine, ward, province].filter((p) => (p || '').trim());
+  return parts.join(', ');
+};
+
+/**
+ * Sync usage address from legal address when usageSameAsLegal = true.
+ * Returns a new location object with usage fields = legal fields.
+ */
+export const syncUsageFromLegal = (
+  customer: CustomerInfo,
+  location: BusinessLocationInfo
+): BusinessLocationInfo => {
+  return {
+    ...location,
+    usageSameAsLegal: true,
+    usageAddressLine: customer.legalAddressLine,
+    usageWard: customer.legalWard,
+    usageProvince: customer.legalProvince,
+    usageFullAddress: customer.legalFullAddress,
+    // Legacy fields
+    usageAddress: customer.legalFullAddress,
+    city: customer.legalProvince,
+  };
+};
 
 // =============================================================================
 // DEFAULT VALUES
@@ -87,91 +131,64 @@ export const KVC_BLOCK_SIZE_M2 = 50;
 
 /**
  * Create a default contract draft with new architecture.
- * Default values are for testing/preflight only.
+ * Form starts EMPTY - user must fill in partner details.
+ * Only system defaults (year, region, domain type) are pre-set.
  */
 export const createDefaultContractDraft = (): CreateContractDraft => {
-  const defaultKaraoke: KaraokeUsageInfo = {
-    karaokeType: 'PHONG',
-    areaGroup: 'DEN_20',
-    totalRooms: 13,
-    totalBoxes: 0,
-    baseSalary: DEFAULT_BASE_SALARY_VND,
-    annualSupportPercent: 0,
-    tier1SupportPercent: 0,
-    tier2SupportPercent: 0,
-    tier3SupportPercent: 0,
-    gtgtPercent: DEFAULT_GTGT_PERCENT,
-    pricingRenderMode: 'text',
-    roomSections: [],
-  };
-
-  const defaultAreaBased: AreaBasedUsageInfo = {
-    locations: [createDefaultBusinessLocation(0)],
-    displayMode: 'auto',
-    pricingMode: undefined,
-    // Legacy fields (deprecated but kept for compatibility)
-    usageKind: 'NHAC_NEN',
-    totalAreaM2: 0,
-    musicUsageAreaM2: 0,
-    numberOfFloors: 1,
-    numberOfZones: 1,
-    hasBackgroundMusic: false,
-    hasLiveMusic: false,
-    hasDj: false,
-    hasKaraokeActivity: false,
-    operatingModel: 'CHINH_HOP',
-    usageDescription: '',
-    areaNotes: '',
-    pricingMethod: '',
-    usageSections: [],
-  };
-
-  // Default calculation lines - one empty karaoke phong line
+  // Default calculation lines - empty karaoke phong line (user fills in)
   const defaultCalcLine = createCalculationLine('KARAOKE_PHONG', 0);
   if (defaultCalcLine.input.module === 'KARAOKE_PHONG') {
     defaultCalcLine.input = {
       ...defaultCalcLine.input,
-      areaGroup: defaultKaraoke.areaGroup,
-      totalRooms: defaultKaraoke.totalRooms,
-      baseSalary: defaultKaraoke.baseSalary,
-      gtgtPercent: defaultKaraoke.gtgtPercent,
+      totalRooms: 0,  // User must enter room count
+      baseSalary: DEFAULT_BASE_SALARY_VND,
+      gtgtPercent: DEFAULT_GTGT_PERCENT,
     };
   }
-  const defaultCalcLines: RoyaltyCalculationLine[] = [defaultCalcLine];
 
   return {
     common: {
-      contractNumber: '0646',
-      signedDate: '2026-05-08',
+      contractNumber: '',  // USER INPUT - leave empty
+      signedDate: '',      // USER INPUT - leave empty
       contractYear: DEFAULT_CONTRACT_YEAR,
-      regionCode: 'HDQTGAN-PN',
-      areaCode: 'PN',
-      fieldCode: 'PR',
+      regionCode: 'HDQTGAN-PN',  // Default region
+      areaCode: '',
+      fieldCode: '',
     },
     customer: {
-      legalName: 'CONG TY TNHH DICH VU TRAN NGOC THANH',
-      brandName: 'KARAOKE NGOC THANH',
+      // ALL CUSTOMER INFO MUST BE USER INPUT
+      legalName: '',
+      brandName: '',
       representativeName: '',
       representativeTitle: '',
       taxCode: '',
       cccd: '',
       phone: '',
       email: '',
-      legalAddress: '13/39/12 Duong so 4, Khu pho 3, phuong Linh Xuan, Tp. Ho Chi Minh',
+      legalAddress: '',
+      legalAddressLine: '',
+      legalWard: '',
+      legalProvince: '',
+      legalFullAddress: '',
     },
     location: {
-      usageAddress: '13/39/12 Duong so 4, Khu pho 3, phuong Linh Xuan, Tp. Ho Chi Minh',
-      city: 'Tp. Ho Chi Minh',
+      usageSameAsLegal: true,  // Default to same as legal
+      usageAddressLine: '',
+      usageWard: '',
+      usageProvince: '',
+      usageFullAddress: '',
+      usageAddress: '',
+      city: '',
       district: '',
       ward: '',
     },
     term: {
-      effectiveFrom: '2026-04-19',
-      effectiveTo: '2027-04-18',
+      effectiveFrom: '',  // USER INPUT
+      effectiveTo: '',    // USER INPUT
     },
     assignee: {
-      name: 'Tuan',
-      email: 'tuan@vcpmc.org',
+      name: '',
+      email: '',
     },
     notes: {
       internal: '',
@@ -179,12 +196,139 @@ export const createDefaultContractDraft = (): CreateContractDraft => {
     },
     domain: {
       domainGroup: 'background',
-      domainCode: 'KARAOKE',
+      domainCode: 'KARAOKE',  // Default domain
       domainDisplayName: 'Karaoke',
+      renewalStatus: 'NEW',    // Default: new contract
+      referenceContractId: null,
+      referenceContractNo: '',
+      sourceTemplateContractId: null,
+      sourceTemplateContractNo: '',
     },
-    karaoke: defaultKaraoke,
-    areaBased: defaultAreaBased,
-    calculationLines: defaultCalcLines,
+    karaoke: {
+      karaokeType: 'PHONG',
+      areaGroup: 'DEN_20',
+      totalRooms: 0,    // User must enter
+      totalBoxes: 0,
+      baseSalary: DEFAULT_BASE_SALARY_VND,
+      annualSupportPercent: 0,
+      tier1SupportPercent: 0,
+      tier2SupportPercent: 0,
+      tier3SupportPercent: 0,
+      gtgtPercent: DEFAULT_GTGT_PERCENT,
+      pricingRenderMode: 'text',
+      roomSections: [],
+    },
+    areaBased: {
+      locations: [],
+      displayMode: 'auto',
+      pricingMode: undefined,
+      usageKind: 'NHAC_NEN',
+      totalAreaM2: 0,
+      musicUsageAreaM2: 0,
+      numberOfFloors: 1,
+      numberOfZones: 1,
+      hasBackgroundMusic: false,
+      hasLiveMusic: false,
+      hasDj: false,
+      hasKaraokeActivity: false,
+      operatingModel: 'CHINH_HOP',
+      usageDescription: '',
+      areaNotes: '',
+      pricingMethod: '',
+      usageSections: [],
+      musicUsageAreas: [],
+      vatRate: 8,
+      royaltyAmountBeforeVat: 0,
+      vatAmount: 0,
+      royaltyAmountAfterVat: 0,
+      royaltyAmountInWords: '',
+    },
+    calculationLines: [defaultCalcLine],
+    // Export template selection (Phase BACKGROUND-TEMPLATE-REFACTOR)
+    contractTemplateCode: 'TEMPLATE_1',  // Default to Mẫu 1
+  };
+};
+
+/**
+ * Create a contract draft from an existing contract's data.
+ * Used to pre-populate the create form with the latest contract's values.
+ */
+export const createDraftFromContract = (
+  contract: import('../data/contractRecords').ContractRecord
+): CreateContractDraft => {
+  const defaultDraft = createDefaultContractDraft();
+
+  // Normalize domain code from display name
+  const rawDomain = (contract.linh_vuc_hien_thi || '').toUpperCase().trim();
+  let domainCode: string = rawDomain;
+  if (rawDomain === 'KARAOKE') domainCode = 'KARAOKE';
+  else if (['PHÒNG THU ÂM', 'PHONG THU AM', 'PHÒNG THU AM'].includes(rawDomain)) domainCode = 'PHONG_THU_AM';
+  else if (['KHU VUI CHƠI', 'KHU VUI CHOI', 'KVC'].includes(rawDomain)) domainCode = 'KHU_VUI_CHOI';
+  else if (['CÀ PHÊ', 'CAFE', 'COFFEE'].includes(rawDomain)) domainCode = 'CAFE';
+  else if (['NHÀ HÀNG', 'NHA HANG', 'NHÀ HÀNG TIỆC CƯỚI'].includes(rawDomain)) domainCode = 'NHA_HANG';
+  else if (['KHÁCH SẠN', 'KHACH SAN'].includes(rawDomain)) domainCode = 'KHACH_SAN';
+  else if (['SIÊU THỊ', 'SIEU THI'].includes(rawDomain)) domainCode = 'SIEU_THI';
+  else if (['TRUNG TÂM THƯƠNG MẠI', 'TRUNG TAM THUONG MAI'].includes(rawDomain)) domainCode = 'TRUNG_TAM_THUONG_MAI';
+
+  const domainDisplayName = contract.linh_vuc_hien_thi || domainCode;
+
+  // Create location from contract
+  const location = createDefaultBusinessLocation(0);
+  if (contract.dia_chi_su_dung) {
+    location.businessAddress = contract.dia_chi_su_dung;
+    location.locationName = contract.ten_bang_hieu || '';
+  }
+
+  // Create karaoke usage if applicable
+  let karaoke = defaultDraft.karaoke;
+  if (['KARAOKE', 'PHONG_THU_AM'].includes(domainCode)) {
+    karaoke = {
+      ...defaultDraft.karaoke,
+      karaokeType: (contract.loai_hinh_karaoke as 'PHONG' | 'BOX') || 'PHONG',
+      totalRooms: contract.tong_so_phong ?? 0,
+      totalBoxes: contract.tong_so_box ?? 0,
+    };
+  }
+
+  return {
+    ...defaultDraft,
+    common: {
+      ...defaultDraft.common,
+      regionCode: contract.region_code || defaultDraft.common.regionCode,
+      fieldCode: contract.field_code || defaultDraft.common.fieldCode,
+    },
+    customer: {
+      ...defaultDraft.customer,
+      legalName: contract.don_vi_ten || '',
+      brandName: contract.ten_bang_hieu || '',
+      // Backward compat: if structured fields exist, use them; otherwise fallback to full text
+      legalAddress: contract.don_vi_dia_chi || '',
+      legalAddressLine: (contract as Record<string, unknown>).legal_address_line as string || (contract.don_vi_dia_chi || '').split(',')[0]?.trim() || '',
+      legalWard: (contract as Record<string, unknown>).legal_ward as string || '',
+      legalProvince: (contract as Record<string, unknown>).legal_province as string || (contract.don_vi_dia_chi || '').split(',').slice(-2, -1)[0]?.trim() || '',
+      legalFullAddress: (contract as Record<string, unknown>).legal_full_address as string || contract.don_vi_dia_chi || '',
+    },
+    location: {
+      ...defaultDraft.location,
+      usageSameAsLegal: false,
+      usageFullAddress: (contract as Record<string, unknown>).usage_full_address as string || contract.dia_chi_su_dung || '',
+      usageAddress: contract.dia_chi_su_dung || '',
+      usageAddressLine: (contract as Record<string, unknown>).usage_address_line as string || (contract.dia_chi_su_dung || '').split(',')[0]?.trim() || '',
+      usageWard: (contract as Record<string, unknown>).usage_ward as string || '',
+      usageProvince: (contract as Record<string, unknown>).usage_province as string || (contract.dia_chi_su_dung || '').split(',').slice(-2, -1)[0]?.trim() || '',
+    },
+    domain: {
+      ...defaultDraft.domain,
+      domainCode: domainCode as any,
+      domainDisplayName,
+    },
+    karaoke,
+    areaBased: {
+      ...defaultDraft.areaBased,
+      locations: [location],
+    },
+    // Phase BACKGROUND-TEMPLATE-REFACTOR: Preserve existing template selection or default to TEMPLATE_1
+    contractTemplateCode: (contract as Record<string, unknown>).contract_template_code as string || 'TEMPLATE_1',
   };
 };
 
@@ -233,17 +377,12 @@ export const getDomainDisplayName = (code: BackgroundDomainCode): string => {
 
 /**
  * Get canonical field code for a domain.
+ * Field codes are right types (PR = Performing Right, MR = Mechanical Right),
+ * not domain types. Defaults to PR; user should manually select MR if needed.
  * Used for composing contract number.
  */
-export const getCanonicalFieldCode = (code: BackgroundDomainCode): string => {
-  switch (code) {
-    case 'KARAOKE':
-      return 'PR';
-    case 'PHONG_THU_AM':
-      return 'PTA';
-    default:
-      return 'PR'; // Default for other background domains
-  }
+export const getCanonicalFieldCode = (_code: BackgroundDomainCode): string => {
+  return 'PR';
 };
 
 /**
@@ -258,6 +397,30 @@ export const isKaraokeCalcDomain = (code: BackgroundDomainCode): boolean => {
  */
 export const isFullyImplementedDomain = (code: BackgroundDomainCode): boolean => {
   return FULLY_IMPLEMENTED_DOMAINS.includes(code);
+};
+
+/**
+ * Get the DOCX template filename for a domain.
+ * Used for debug/audit display in the summary panel.
+ */
+export const getTemplateName = (code: BackgroundDomainCode): string => {
+  const TEMPLATES: Record<string, string> = {
+    KARAOKE: 'export_template_contract_karaoke.docx',
+    PHONG_THU_AM: 'export_template_contract_phong_thu_am.docx',
+    CAFE: 'export_template_contract_cafe.docx',
+    NHA_HANG: 'export_template_contract_nha_hang.docx',
+    KHU_VUI_CHOI: 'export_template_contract_khu_vui_choi.docx',
+    KHACH_SAN: 'export_template_contract_khach_san.docx',
+    SIEU_THI: 'export_template_contract_sieu_thi.docx',
+    TRUNG_TAM_THUONG_MAI: 'export_template_contract_trung_tam_thuong_mai.docx',
+    BAR: 'export_template_contract_bar.docx',
+    VAN_PHONG: 'export_template_contract_van_phong.docx',
+    CUA_HANG: 'export_template_contract_cua_hang.docx',
+    RAP_CHIEU: 'export_template_contract_rap_chieu.docx',
+    PHONG_TRA: 'export_template_contract_phong_tra.docx',
+    CHAM_SOC_SUC_KHOE: 'export_template_contract_cham_suc_suc_khoe.docx',
+  };
+  return TEMPLATES[code] || `export_template_contract_${code.toLowerCase()}.docx`;
 };
 
 /**
@@ -330,6 +493,19 @@ export const mapDraftToContractRecordsCandidate = (
   const gtgtAmount = Math.max(0, Math.round(aggregation?.gtgtAmount ?? 0));
   const totalAmount = Math.max(0, Math.round(aggregation?.totalAmount ?? 0));
 
+  // Phase 2: Music usage areas (strip id for DB)
+  const musicUsageAreas = draft.areaBased.musicUsageAreas.map((area) => ({
+    area_name: area.areaName || '',
+    scale_description: area.scaleDescription || '',
+    music_usage_type: area.musicUsageType || '',
+  }));
+
+  // Phase 2: Simplified royalty (direct input from form)
+  const royaltyAmountBeforeVat = Math.max(0, Math.round(aggregation?.subtotalBeforeGtgt ?? 0));
+  const vatRate = draft.areaBased.vatRate ?? 8;
+  const vatAmount = Math.round(royaltyAmountBeforeVat * vatRate / 100);
+  const royaltyAmountAfterVat = royaltyAmountBeforeVat + vatAmount;
+
   return {
     contract_no: contractNo,
     contract_year: year,
@@ -341,13 +517,26 @@ export const mapDraftToContractRecordsCandidate = (
     field_code: draft.common.fieldCode,
     don_vi_ten: draft.customer.legalName.trim(),
     ten_bang_hieu: draft.customer.brandName.trim(),
+    // Legal address (backward compat + new structured fields)
     don_vi_dia_chi: draft.customer.legalAddress.trim(),
+    legal_address_line: draft.customer.legalAddressLine.trim(),
+    legal_ward: draft.customer.legalWard.trim(),
+    legal_province: draft.customer.legalProvince.trim(),
+    legal_full_address: draft.customer.legalFullAddress.trim(),
     don_vi_dien_thoai: draft.customer.phone.trim(),
     don_vi_email: draft.customer.email.trim(),
     don_vi_nguoi_dai_dien: draft.customer.representativeName.trim(),
     don_vi_chuc_vu: draft.customer.representativeTitle.trim(),
     don_vi_mst: draft.customer.taxCode.trim(),
-    dia_chi_su_dung: draft.location.usageAddress.trim(),
+    // Usage address (new structured fields)
+    usage_same_as_legal: draft.location.usageSameAsLegal,
+    usage_address_line: draft.location.usageAddressLine.trim(),
+    usage_ward: draft.location.usageWard.trim(),
+    usage_province: draft.location.usageProvince.trim(),
+    usage_full_address: draft.location.usageFullAddress.trim(),
+    // Legacy: keep full text for backward compat
+    dia_chi_su_dung: draft.location.usageFullAddress.trim(),
+    nguoi_thuc_hien_name: draft.assignee.name.trim(),
     nguoi_thuc_hien_email: draft.assignee.email.trim(),
     loai_hinh_karaoke: draft.karaoke.karaokeType,
     tong_so_phong: draft.karaoke.totalRooms,
@@ -356,12 +545,27 @@ export const mapDraftToContractRecordsCandidate = (
     room_display_text: roomDisplayText,
     ngay_bat_dau: draft.term.effectiveFrom,
     ngay_ket_thuc: draft.term.effectiveTo,
-    // Financial fields must be raw numeric VND values from successful calculation.
+    // Legacy financial fields
     so_tien_chua_gtgt_value: amountBeforeGtgt,
     thue_percent: draft.karaoke.gtgtPercent,
     thue_gtgt_value: gtgtAmount,
     so_tien_value: totalAmount,
-    renewal_status: 'NEW' as CreateContractRenewalStatus,
+    renewal_status: draft.domain.renewalStatus || 'NEW',
+    reference_contract_id: draft.domain.referenceContractId,
+    reference_contract_no: draft.domain.referenceContractNo?.trim() || '',
+    source_template_contract_id: draft.domain.sourceTemplateContractId,
+    source_template_contract_no: draft.domain.sourceTemplateContractNo?.trim() || '',
+    contract_terms_note: draft.notes.contractTerms.trim(),
+    // Phase 2: Music usage areas
+    music_usage_areas: musicUsageAreas,
+    // Phase 2: Simplified royalty fields
+    royalty_amount_before_vat: royaltyAmountBeforeVat,
+    vat_rate: vatRate,
+    vat_amount: vatAmount,
+    royalty_amount_after_vat: royaltyAmountAfterVat,
+    royalty_amount_in_words: numberToVietnameseWords(royaltyAmountAfterVat),
+    // Phase BACKGROUND-TEMPLATE-REFACTOR: Export template selection
+    contract_template_code: draft.contractTemplateCode,
   };
 };
 
@@ -515,6 +719,9 @@ export const updateDomainSelection = (code: BackgroundDomainCode): DraftUpdater 
     domainCode: code,
     domainDisplayName: getDomainDisplayName(code),
     fieldCode: getCanonicalFieldCode(code),
+    renewalStatus: current.domain.renewalStatus || 'NEW',
+    referenceContractId: current.domain.referenceContractId,
+    referenceContractNo: current.domain.referenceContractNo,
   },
   karaoke: isKaraokeCalcDomain(code) ? current.karaoke : {
     karaokeType: 'PHONG' as const,
@@ -596,7 +803,7 @@ export const removeCalculationLineById = (
   lineId: string
 ): DraftUpdater => (current) => ({
   ...current,
-  calculationLines: current.calculationLines.filter((line) => line.id !== lineId),
+  calculationLines: (current.calculationLines ?? []).filter((line) => line.id !== lineId),
 });
 
 /**
@@ -674,11 +881,11 @@ export const getModuleStatus = (module: CalculationModuleCode): 'implemented' | 
     case 'KARAOKE_BOX':
     case 'KVC_VCPMC_TARIFF':
     case 'KVC_ND17':
-      return 'implemented';
     case 'CAFE':
     case 'NHA_HANG':
     case 'KHACH_SAN':
-      return 'planned';
+    case 'MANUAL_FEE':
+      return 'implemented';
     case 'CUSTOM_PLACEHOLDER':
       return 'disabled';
     default:
@@ -732,19 +939,22 @@ export const getModuleDisplayName = (module: CalculationModuleCode): string => {
  */
 export const createCalculationLine = (
   module: CalculationModuleCode,
-  existingLinesCount: number
+  existingLinesCount: number,
+  allLocationIds: string[] = [],
 ): RoyaltyCalculationLine => {
   const moduleLabel = getModuleDisplayName(module);
   const lineNumber = existingLinesCount + 1;
 
   const defaultInput: CalculationLineInput = createDefaultLineInput(module);
 
+  const isKvcModule = module === 'KVC_VCPMC_TARIFF' || module === 'KVC_ND17';
+
   return {
     id: `${CALC_LINE_ID_PREFIX}${Date.now()}-${existingLinesCount}`,
     label: `${moduleLabel} ${lineNumber}`,
     calculationModule: module,
     enabled: true,
-    appliesToLocationIds: [],
+    appliesToLocationIds: isKvcModule ? allLocationIds : [],
     input: defaultInput,
     result: null,
     status: isModuleImplemented(module) ? 'idle' : 'disabled',
@@ -780,15 +990,20 @@ export const createDefaultLineInput = (module: CalculationModuleCode): Calculati
     case 'KVC_VCPMC_TARIFF':
       return {
         module: 'KVC_VCPMC_TARIFF',
-        locationAreas: [],
         gtgtPercent: DEFAULT_GTGT_PERCENT,
+        supportPercent: 0,
         supportAmount: 0,
+        usageDisplayMode: 'auto',
       };
     case 'KVC_ND17':
       return {
         module: 'KVC_ND17',
-        locationAreas: [],
-        nd17Fields: {},
+        baseSalary: DEFAULT_BASE_SALARY_VND,
+        gtgtPercent: DEFAULT_GTGT_PERCENT,
+        supportPercent: 0,
+        supportAmount: 0,
+        urbanClass: 'HN_HCM',
+        usageDisplayMode: 'auto',
       };
     case 'CAFE':
       return {
@@ -804,6 +1019,14 @@ export const createDefaultLineInput = (module: CalculationModuleCode): Calculati
       return {
         module: 'KHACH_SAN',
         locationAreas: [],
+      };
+    case 'MANUAL_FEE':
+      return {
+        module: 'MANUAL_FEE',
+        tienChuaGtgt: 0,
+        gtgtPercent: DEFAULT_GTGT_PERCENT,
+        gtgtAmount: 0,
+        tienSauThue: 0,
       };
     case 'CUSTOM_PLACEHOLDER':
     default:
@@ -950,6 +1173,8 @@ export const mapKaraokeResponseToLineResult = (
 ): CalculationLineResult => {
   const calc = response.calculation;
 
+  // Build detailRows from tiers BEFORE support is applied
+  // This shows the user what the full (non-discounted) amounts are
   const detailRows: CalculationDetailRow[] = calc.tiers
     .filter((t) => t.rooms > 0)
     .map((tier) => ({
@@ -970,9 +1195,15 @@ export const mapKaraokeResponseToLineResult = (
     message: e.message,
   }));
 
+  // subtotalBeforeGtgt = subtotal BEFORE support (full amount before discount)
+  // This is what the table should show as the "before support" row
+  const subtotalBeforeSupport = calc.subtotal_before_support;
+  const supportAmount = calc.annual_support_amount;
+  const amountAfterSupport = calc.amount_before_gtgt; // This is after support
+
   return {
     termMonths: calc.term_months,
-    subtotalBeforeGtgt: calc.amount_before_gtgt,
+    subtotalBeforeGtgt: subtotalBeforeSupport, // Use subtotal_before_support
     gtgtAmount: calc.gtgt_amount,
     totalAmount: calc.total_amount,
     effectiveSubtotalBeforeGtgt: calc.effective_amount_before_gtgt,
@@ -1143,6 +1374,7 @@ export const createDefaultBusinessLocation = (
 export const createDefaultAreaBasedUsageInfo = (): AreaBasedUsageInfo => {
   return {
     locations: [createDefaultBusinessLocation(0)],
+    musicUsageAreas: [],
     displayMode: 'auto',
     pricingMode: undefined,
     // Legacy fields (deprecated)
@@ -1160,6 +1392,18 @@ export const createDefaultAreaBasedUsageInfo = (): AreaBasedUsageInfo => {
     areaNotes: '',
     pricingMethod: '',
     usageSections: [],
+  };
+};
+
+/**
+ * Create a default music usage area row.
+ */
+export const createDefaultMusicUsageArea = (): MusicUsageArea => {
+  return {
+    id: `mua-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    areaName: '',
+    scaleDescription: '',
+    musicUsageType: '',
   };
 };
 
@@ -1556,13 +1800,23 @@ export const migrateLegacyDraft = (
       cccd: '',
       phone: String((legacyDraft as Record<string, unknown>).phone || legacyDraft?.customer?.phone || ''),
       email: String((legacyDraft as Record<string, unknown>).email || legacyDraft?.customer?.email || ''),
+      // Backward compat: treat full legalAddress as full_address
       legalAddress: String((legacyDraft as Record<string, unknown>).legalAddress || legacyDraft?.customer?.legalAddress || ''),
+      legalAddressLine: String((legacyDraft as Record<string, unknown>).addressLine || ''),
+      legalWard: String((legacyDraft as Record<string, unknown>).ward || legacyDraft?.customer?.ward || ''),
+      legalProvince: String((legacyDraft as Record<string, unknown>).province || legacyDraft?.customer?.province || ''),
+      legalFullAddress: String((legacyDraft as Record<string, unknown>).legalAddress || legacyDraft?.customer?.legalAddress || ''),
     },
     location: {
+      usageSameAsLegal: false,
       usageAddress: String((legacyDraft as Record<string, unknown>).businessAddress || legacyDraft?.location?.businessAddress || ''),
-      city: String((legacyDraft as Record<string, unknown>).city || legacyDraft?.location?.city || ''),
+      usageAddressLine: String((legacyDraft as Record<string, unknown>).usageAddressLine || ''),
+      usageWard: String((legacyDraft as Record<string, unknown>).ward || legacyDraft?.location?.ward || ''),
+      usageProvince: String((legacyDraft as Record<string, unknown>).city || legacyDraft?.location?.city || ''),
+      usageFullAddress: String((legacyDraft as Record<string, unknown>).businessAddress || legacyDraft?.location?.businessAddress || ''),
+      city: '',
       district: '',
-      ward: String((legacyDraft as Record<string, unknown>).ward || legacyDraft?.location?.ward || ''),
+      ward: '',
     },
     term: {
       effectiveFrom: String((legacyDraft as Record<string, unknown>).startDate || legacyDraft?.dates?.startDate || ''),
@@ -1580,6 +1834,9 @@ export const migrateLegacyDraft = (
       domainGroup: 'background',
       domainCode: String((legacyDraft as Record<string, unknown>).linhVuc || legacyDraft?.domain?.code || 'KARAOKE') as BackgroundDomainCode,
       domainDisplayName: String((legacyDraft as Record<string, unknown>).linhVucHienThi || legacyDraft?.domain?.displayName || 'Karaoke'),
+      renewalStatus: 'NEW',
+      referenceContractId: null,
+      referenceContractNo: '',
     },
     karaoke: {
       karaokeType: String((legacyDraft as Record<string, unknown>).loaiHinh || legacyDraft?.domain?.karaokeUsageType || 'PHONG') as 'PHONG' | 'BOX',

@@ -1,8 +1,84 @@
-// Employee performance + pending-contracts data for the Reports page.
-// Numbers for individual users are reasonable mocks (prototype),
-// but all org/contract names referenced come from real CONTRACT_RECORDS.
+/**
+ * Employee performance + pending-contract helpers for the Reports page.
+ *
+ * IMPORTANT: All real data comes from the /api/reports/summary endpoint.
+ * This file only contains:
+ *   - Type definitions (mirroring backend response)
+ *   - Helper functions for signed contracts filtering
+ *   - Pending category label mappings
+ *
+ * No hardcoded mock/clone employee data here.
+ */
 
-import { CONTRACT_RECORDS, getExpiryStatus } from './contractRecords';
+import type { SignedContractItem } from '../lib/reportsClient';
+
+// =============================================================================
+// Pending contract categories
+// =============================================================================
+
+export type PendingCategory =
+  | 'draft'
+  | 'awaiting_partner'
+  | 'missing_partner_info'
+  | 'missing_finance'
+  | 'awaiting_approval'
+  | 'no_gcn';
+
+export const PENDING_CATEGORY_LABEL: Record<PendingCategory, string> = {
+  draft: 'Bản nháp',
+  awaiting_partner: 'Chờ khách phản hồi',
+  missing_partner_info: 'Thiếu thông tin đối tác',
+  missing_finance: 'Thiếu dữ liệu tài chính',
+  awaiting_approval: 'Chờ duyệt',
+  no_gcn: 'Chưa tạo GCN',
+};
+
+/**
+ * Get priority badge from days stuck.
+ * NOTE: Real pending contracts should have their own priority stored in DB.
+ * This helper is used as fallback when no priority data exists.
+ */
+export function getPendingPriority(
+  daysStuck: number
+): { label: string; tone: 'danger' | 'warning' | 'neutral' } {
+  if (daysStuck > 14) return { label: 'Cao', tone: 'danger' };
+  if (daysStuck >= 7) return { label: 'Theo dõi', tone: 'warning' };
+  return { label: 'Bình thường', tone: 'neutral' };
+}
+
+// =============================================================================
+// Signed contracts filtering (uses real data from API)
+// =============================================================================
+
+export type SignedScope = 'week' | 'month' | 'quarter' | 'year';
+
+/**
+ * Filter signed contracts by time scope using real signed_date from DB.
+ *
+ * NOTE: The backend now provides signed_contracts from the summary endpoint.
+ * This function is kept for backward compatibility — in production, filtering
+ * should be done server-side.
+ */
+export function filterSignedByScope(
+  scope: SignedScope,
+  todayIso: string = new Date().toISOString().slice(0, 10)
+): SignedContractItem[] {
+  // This function is no longer the primary data source.
+  // Real data comes from /api/reports/summary via reportsClient.ts.
+  // Kept here for reference and potential future server-side filtering.
+  return [];
+}
+
+// =============================================================================
+// Employee performance
+//
+// NOTE: Employee-level stats (signedThisWeek, signedThisMonth, pending count, etc.)
+// are not yet available from the API. The employee performance table will be
+// populated with real data once the backend provides per-user aggregation.
+//
+// Placeholder: this will be replaced with real data from /api/reports/employees
+// or /api/users/performance in a future phase.
+// =============================================================================
 
 export type EmployeeKey = 'tuan' | 'admin' | 'nv1';
 
@@ -17,207 +93,75 @@ export type EmployeePerformance = {
   expiringAssigned: number;
   revenue: number;
   gcnHandled: number;
-  completionRate: number; // 0..100
+  completionRate: number;
 };
-
-export const EMPLOYEE_PERFORMANCE: EmployeePerformance[] = [
-{
-  key: 'tuan',
-  name: 'Tuấn',
-  email: 'tuan@vcpmc.org',
-  signedThisWeek: 5,
-  signedThisMonth: 18,
-  signedThisYear: 42,
-  pending: 4,
-  expiringAssigned: 7,
-  revenue: 520_000_000,
-  gcnHandled: 32,
-  completionRate: 86
-},
-{
-  key: 'admin',
-  name: 'Admin',
-  email: 'admin@vcpmc.org',
-  signedThisWeek: 2,
-  signedThisMonth: 9,
-  signedThisYear: 21,
-  pending: 3,
-  expiringAssigned: 5,
-  revenue: 310_000_000,
-  gcnHandled: 18,
-  completionRate: 78
-},
-{
-  key: 'nv1',
-  name: 'Nhân viên 1',
-  email: 'user1@vcpmc.org',
-  signedThisWeek: 1,
-  signedThisMonth: 6,
-  signedThisYear: 14,
-  pending: 6,
-  expiringAssigned: 8,
-  revenue: 245_000_000,
-  gcnHandled: 11,
-  completionRate: 64
-}];
-
 
 export type PerformanceTone = 'good' | 'watch' | 'overload';
 
-export function getPerformanceTone(p: EmployeePerformance): PerformanceTone {
+export function getPerformanceTone(
+  p: EmployeePerformance
+): PerformanceTone {
   if (p.completionRate >= 80 && p.pending <= 4) return 'good';
   if (p.completionRate < 70 || p.pending >= 6) return 'overload';
   return 'watch';
 }
 
-// ---- Pending contracts (chờ xử lý) ----
+/**
+ * NOTE: EMPLOYEE_PERFORMANCE is a placeholder.
+ * Real per-user stats will come from the backend in a future phase.
+ * Until then, the employee performance table shows a placeholder message.
+ */
+export const EMPLOYEE_PERFORMANCE: EmployeePerformance[] = [];
 
-export type PendingCategory =
-'draft' |
-'awaiting_partner' |
-'missing_partner_info' |
-'missing_finance' |
-'awaiting_approval' |
-'no_gcn';
-
-export const PENDING_CATEGORY_LABEL: Record<PendingCategory, string> = {
-  draft: 'Bản nháp',
-  awaiting_partner: 'Chờ khách phản hồi',
-  missing_partner_info: 'Thiếu thông tin đối tác',
-  missing_finance: 'Thiếu dữ liệu tài chính',
-  awaiting_approval: 'Chờ duyệt',
-  no_gcn: 'Chưa tạo GCN'
-};
+// =============================================================================
+// Pending rows
+//
+// NOTE: The backend does not yet have a pending-contracts table.
+// Real pending data should be added when the backend implements:
+//   1. A contract workflow/status tracking table, OR
+//   2. Contracts flagged with missing data indicators
+//
+// Until then, the pending contracts section will show an empty state
+// or data derived from contracts with null values.
+// =============================================================================
 
 export type PendingRow = {
   id: string;
-  contractRecordId: number; // ref to CONTRACT_RECORDS
+  contractRecordId: number;
   category: PendingCategory;
   assignee: string;
-  createdAt: string; // YYYY-MM-DD
+  createdAt: string;
   daysStuck: number;
   missingStep: string;
 };
 
-const TODAY = new Date('2026-05-08');
-const daysSince = (d: string) =>
-Math.max(
-  0,
-  Math.floor(
-    (TODAY.getTime() - new Date(d).getTime()) / (1000 * 60 * 60 * 24)
-  )
-);
+/**
+ * NOTE: PENDING_ROWS is a placeholder.
+ * Real pending contracts come from backend workflow tracking.
+ */
+export const PENDING_ROWS: PendingRow[] = [];
 
-// Picks real contract records and assigns realistic stuck reasons.
-// All org/brand names come from CONTRACT_RECORDS — none fabricated.
-export const PENDING_ROWS: PendingRow[] = [
-{
-  id: 'p1',
-  contractRecordId: 4095, // KARAOKE 64 — so_tien_value: null
-  category: 'missing_finance',
-  assignee: 'Nhân viên 1',
-  createdAt: '2026-04-07',
-  daysStuck: daysSince('2026-04-07'),
-  missingStep: 'Thiếu giá trị hợp đồng'
-},
-{
-  id: 'p2',
-  contractRecordId: 4116, // DREAM GAMES VN — so_tien=0, phong=0
-  category: 'missing_partner_info',
-  assignee: 'Tuấn',
-  createdAt: '2026-04-09',
-  daysStuck: daysSince('2026-04-09'),
-  missingStep: 'Thiếu số phòng & dữ liệu tài chính'
-},
-{
-  id: 'p3',
-  contractRecordId: 4104, // KARAOKE TÁO ĐỎ — PENDING_RENEWAL
-  category: 'awaiting_partner',
-  assignee: 'Admin',
-  createdAt: '2026-04-22',
-  daysStuck: daysSince('2026-04-22'),
-  missingStep: 'Chờ phản hồi tái ký từ đối tác'
-},
-{
-  id: 'p4',
-  contractRecordId: 4094, // KING STAR — renewal_status: null
-  category: 'awaiting_approval',
-  assignee: 'Tuấn',
-  createdAt: '2026-04-28',
-  daysStuck: daysSince('2026-04-28'),
-  missingStep: 'Chờ duyệt từ trưởng phòng'
-},
-{
-  id: 'p5',
-  contractRecordId: 4093, // LUCKY STAR — renewal_status: null
-  category: 'no_gcn',
-  assignee: 'Nhân viên 1',
-  createdAt: '2026-05-01',
-  daysStuck: daysSince('2026-05-01'),
-  missingStep: 'Chưa tạo GCN sau khi ký'
-},
-{
-  id: 'p6',
-  contractRecordId: 4109, // KARAOKE NGUYỄN
-  category: 'draft',
-  assignee: 'Admin',
-  createdAt: '2026-05-04',
-  daysStuck: daysSince('2026-05-04'),
-  missingStep: 'Bản nháp chưa hoàn tất'
-}];
+/**
+ * Resolve pending rows with their contract data.
+ * Returns enriched rows with contract details.
+ */
+export type ResolvedPendingRow = PendingRow & {
+  contract: {
+    id: number;
+    don_vi_ten: string;
+    ten_bang_hieu: string | null;
+    linh_vuc_hien_thi: string;
+  } | null;
+};
 
-
-export function getPendingPriority(daysStuck: number): {
-  label: string;
-  tone: 'danger' | 'warning' | 'neutral';
-} {
-  if (daysStuck > 14) return { label: 'Cao', tone: 'danger' };
-  if (daysStuck >= 7) return { label: 'Theo dõi', tone: 'warning' };
-  return { label: 'Bình thường', tone: 'neutral' };
-}
-
-// ---- Signed contracts feed (uses real CONTRACT_RECORDS) ----
-
-export type SignedScope = 'week' | 'month' | 'quarter' | 'year';
-
-const ASSIGNEE_BY_INDEX = ['Tuấn', 'Admin', 'Nhân viên 1'] as const;
-
-// All 12 records → annotate with mock assignee + mock GCN status,
-// keep real contract numbers, dates, partners, values.
-export const SIGNED_FEED = CONTRACT_RECORDS.map((r, i) => ({
-  id: r.id,
-  contract_no: r.contract_no,
-  signedDate: r.ngay_lap_hop_dong,
-  startDate: r.ngay_bat_dau,
-  endDate: r.ngay_ket_thuc,
-  partner: r.don_vi_ten,
-  brand: r.ten_bang_hieu,
-  field: r.linh_vuc_hien_thi,
-  assignee: ASSIGNEE_BY_INDEX[i % 3],
-  value: r.so_tien_value,
-  gcnStatus:
-  i % 4 === 0 ?
-  'final_printed' :
-  i % 4 === 1 ?
-  'test_printed' :
-  i % 4 === 2 ?
-  'draft' :
-  'no_gcn'
-}));
-
-export function filterSignedByScope(
-scope: SignedScope,
-todayIso: string = '2026-05-08')
-{
-  const today = new Date(todayIso);
-  return SIGNED_FEED.filter((r) => {
-    const signed = new Date(r.signedDate);
-    const days = Math.floor(
-      (today.getTime() - signed.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    if (scope === 'week') return days <= 7;
-    if (scope === 'month') return days <= 31;
-    if (scope === 'quarter') return days <= 92;
-    return true;
-  });
+export function resolvePendingRows(
+  rows: PendingRow[],
+  contractMap: Map<number, { don_vi_ten: string; ten_bang_hieu: string | null; linh_vuc_hien_thi: string }>
+): ResolvedPendingRow[] {
+  return rows
+    .map((p) => {
+      const c = contractMap.get(p.contractRecordId);
+      return c ? { ...p, contract: c } : null;
+    })
+    .filter((x): x is ResolvedPendingRow => x !== null);
 }

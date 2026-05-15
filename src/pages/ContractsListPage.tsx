@@ -54,11 +54,9 @@ import {
   getContracts,
   exportDocxPreview,
   getCertificateContextDryRun,
-  createCertificateDraft,
   deleteContractCloneOnly,
   type ExportPreviewResult,
   type CertificateContextResult,
-  type CertificateDraftCreateResult,
   type DeleteContractCloneOnlyResult,
 } from '../lib/contractsClient';
 import { useAuth } from '../lib/auth';
@@ -96,11 +94,20 @@ function toContractRecord(item: ApiContractItem): ContractRecord {
 }
 export function ContractsListPage({
   onNavigate,
-  onOpenDetail
-}: {onNavigate: (k: RouteKey) => void;onOpenDetail: (id: number) => void;}) {
+  onOpenDetail,
+  onPrintCertificate,
+  onCreateNew,
+}: {
+  onNavigate: (k: RouteKey) => void;
+  onOpenDetail: (id: number) => void;
+  onPrintCertificate?: (contractId: number) => void;
+  /** Callback when user clicks "Tạo hợp đồng mới" - receives the latest contract for pre-populating */
+  onCreateNew?: (latestContract: ContractRecord | undefined) => void;
+}) {
   // Auth
-  const { currentUser } = useAuth();
-  const isAdmin = currentUser?.role === 'super_admin' || currentUser?.backendRole?.toLowerCase() === 'admin' || currentUser?.backendRole?.toLowerCase() === 'mod' || currentUser?.backendRole?.toLowerCase() === 'superuser';
+  const { currentUser, hasPermission } = useAuth();
+  const canEdit = hasPermission('contracts.edit');
+  const canDelete = hasPermission('contracts.delete');
 
   // Filter state
   const [keyword, setKeyword] = useState('');
@@ -121,18 +128,17 @@ export function ContractsListPage({
   const [pageSize, setPageSize] = useState(30);
   const [reloadTick, setReloadTick] = useState(0);
 
-  // Action modal state (Xuất Word / Xem dữ liệu GCN / Tạo GCN nháp / Xóa)
+  // Action modal state (Xuất Word / Xem dữ liệu GCN / Xóa)
   const [actionModal, setActionModal] = useState<{
     contractId: number;
     contractNo: string;
     customerName: string;
     domain: string;
-    action: 'word_preview' | 'gcn_context' | 'gcn_create' | 'delete_confirm' | 'delete_result' | null;
+    action: 'word_preview' | 'gcn_context' | 'delete_confirm' | 'delete_result' | null;
     loading: boolean;
     error: string;
     wordResult: ExportPreviewResult | null;
     gcnResult: CertificateContextResult | null;
-    draftResult: CertificateDraftCreateResult | null;
     deleteResult: DeleteContractCloneOnlyResult | null;
   }>({
     contractId: 0,
@@ -144,7 +150,6 @@ export function ContractsListPage({
     error: '',
     wordResult: null,
     gcnResult: null,
-    draftResult: null,
     deleteResult: null,
   });
   const hasActiveFilter =
@@ -195,6 +200,7 @@ export function ContractsListPage({
       error: '',
       wordResult: null,
       gcnResult: null,
+      deleteResult: null,
     });
     try {
       const result = await exportDocxPreview(token, r.id, { include_blocks: true });
@@ -217,7 +223,6 @@ export function ContractsListPage({
       error: '',
       wordResult: null,
       gcnResult: null,
-      draftResult: null,
       deleteResult: null,
     });
     try {
@@ -225,30 +230,6 @@ export function ContractsListPage({
       setActionModal((prev) => ({ ...prev, loading: false, gcnResult: result, error: result.ok ? '' : 'Khong lay duoc du lieu GCN' }));
     } catch (err: any) {
       setActionModal((prev) => ({ ...prev, loading: false, error: String(err?.message || 'Loi khi lay du lieu GCN') }));
-    }
-  };
-
-  const openGcnDraftCreate = async (r: ContractRecord) => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return;
-    setActionModal({
-      contractId: r.id,
-      contractNo: r.contract_no,
-      customerName: r.don_vi_ten,
-      domain: r.linh_vuc_hien_thi,
-      action: 'gcn_create',
-      loading: true,
-      error: '',
-      wordResult: null,
-      gcnResult: null,
-      draftResult: null,
-      deleteResult: null,
-    });
-    try {
-      const result = await createCertificateDraft(token, r.id, { client_confirmation: { clone_only_certificate_draft_confirmed: true } });
-      setActionModal((prev) => ({ ...prev, loading: false, draftResult: result, error: result.ok ? '' : 'Tao GCN nháp that bai' }));
-    } catch (err: any) {
-      setActionModal((prev) => ({ ...prev, loading: false, error: String(err?.message || 'Loi khi tao GCN nháp') }));
     }
   };
 
@@ -263,7 +244,6 @@ export function ContractsListPage({
       error: '',
       wordResult: null,
       gcnResult: null,
-      draftResult: null,
       deleteResult: null,
     });
   };
@@ -275,6 +255,13 @@ export function ContractsListPage({
     try {
       const result = await deleteContractCloneOnly(token, actionModal.contractId);
       setActionModal((prev) => ({ ...prev, loading: false, deleteResult: result, action: 'delete_result', error: result.ok ? '' : result.message }));
+      // Auto reload list after successful delete
+      if (result.ok) {
+        setTimeout(() => {
+          closeActionModal();
+          triggerRefresh();
+        }, 1500);
+      }
     } catch (err: any) {
       const msg = String(err?.message || 'Loi khi xoa');
       if (msg.includes('405') || msg.toLowerCase().includes('method not allowed')) {
@@ -309,7 +296,7 @@ export function ContractsListPage({
           deleteResult: {
             ok: false,
             mode: 'forbidden',
-            message: 'Admin delete tren DB chinh bi disabled. Bat ADMIN_DELETE_ANY_CONTRACT_CLONE_ENABLED=true de xoa record tren DB chinh.',
+            message: 'Chua bat DELETE_CONTRACT_MAIN_DB_ENABLED. Khong the xoa du lieu tren DB chinh.',
             write_performed: false,
             contract_id: actionModal.contractId,
             contract_no: actionModal.contractNo,
@@ -369,7 +356,6 @@ export function ContractsListPage({
       error: '',
       wordResult: null,
       gcnResult: null,
-      draftResult: null,
       deleteResult: null,
     });
   };
@@ -448,7 +434,13 @@ export function ContractsListPage({
             <Button
             variant="primary"
             leftIcon={<FilePlusIcon className="h-4 w-4" />}
-            onClick={() => onNavigate('contracts.create')}>
+            onClick={() => {
+              // Pass the first (newest) contract to pre-populate the create form
+              if (onCreateNew && contracts.length > 0) {
+                onCreateNew(contracts[0]);
+              }
+              onNavigate('contracts.create');
+            }}>
             
               Tạo hợp đồng mới
             </Button>
@@ -463,27 +455,27 @@ export function ContractsListPage({
         stats={[
         {
           label: 'Tổng hợp đồng BG',
-          value: BACKGROUND_OPS_SUMMARY.totalBackground,
+          value: formatNumber(BACKGROUND_OPS_SUMMARY.totalBackground),
           tone: 'indigo'
         },
         {
           label: 'Còn hiệu lực',
-          value: BACKGROUND_OPS_SUMMARY.active,
+          value: formatNumber(BACKGROUND_OPS_SUMMARY.active),
           tone: 'emerald'
         },
         {
           label: 'Sắp hết 30 ngày',
-          value: BACKGROUND_OPS_SUMMARY.expiringIn30Days,
+          value: formatNumber(BACKGROUND_OPS_SUMMARY.expiringIn30Days),
           tone: 'amber'
         },
         {
           label: 'Hết hạn',
-          value: BACKGROUND_OPS_SUMMARY.expired,
+          value: formatNumber(BACKGROUND_OPS_SUMMARY.expired),
           tone: 'rose'
         },
         {
           label: 'Chờ tái ký',
-          value: BACKGROUND_OPS_SUMMARY.pendingRenewal,
+          value: formatNumber(BACKGROUND_OPS_SUMMARY.pendingRenewal),
           tone: 'violet'
         }]
         } />
@@ -538,18 +530,21 @@ export function ContractsListPage({
       <FilterBar
         hasActive={hasActiveFilter}
         onClear={clearFilters}
+        error={error}
         resultSummary={
-        <span>
-            Hiển thị{' '}
-            <span className="font-semibold text-zinc-900 tabular-nums">
-              {rangeFrom}–{rangeTo}
-            </span>{' '}
-            trong{' '}
-            <span className="font-semibold text-zinc-900 tabular-nums">
-              {formatNumber(total)}
-            </span>{' '}
-            hợp đồng
-          </span>
+          error ? undefined : (
+            <span>
+              Hiển thị{' '}
+              <span className="font-semibold text-zinc-900 tabular-nums">
+                {rangeFrom}–{rangeTo}
+              </span>{' '}
+              trong{' '}
+              <span className="font-semibold text-zinc-900 tabular-nums">
+                {formatNumber(total)}
+              </span>{' '}
+              hợp đồng
+            </span>
+          )
         }>
         
         <FilterField label="Tìm kiếm" width="flex-1 min-w-[260px]">
@@ -623,9 +618,9 @@ export function ContractsListPage({
           {
             label: 'Tạo GCN hàng loạt',
             icon: <AwardIcon className="h-3.5 w-3.5" />,
-            onClick: () => {},
-            disabled: true,
-            disabledReason: 'Chưa triển khai tạo GCN hàng loạt',
+            onClick: () => onNavigate('contracts.print'),
+            disabled: selected.size === 0,
+            disabledReason: selected.size === 0 ? 'Chọn ít nhất 1 hợp đồng Karaoke' : undefined,
           }]
           } />
         
@@ -853,6 +848,8 @@ export function ContractsListPage({
                           label: 'Chỉnh sửa',
                           icon: <PencilIcon className="h-4 w-4" />,
                           onClick: () => onOpenDetail(r.id),
+                          disabled: !canEdit,
+                          disabledReason: !canEdit ? 'Không có quyền chỉnh sửa' : undefined,
                         },
                         {
                           label: 'Xuất Word',
@@ -869,18 +866,16 @@ export function ContractsListPage({
                           disabledReason: r.linh_vuc_hien_thi !== 'Karaoke' ? 'Chỉ hỗ trợ Karaoke' : undefined,
                         },
                         {
-                          label: 'Tạo GCN nháp',
+                          label: 'Tạo GCN',
                           icon: <AwardIcon className="h-4 w-4" />,
-                          onClick: () => openGcnDraftCreate(r),
+                          onClick: () => onPrintCertificate ? onPrintCertificate(r.id) : onNavigate('contracts.print'),
                           disabled: r.linh_vuc_hien_thi !== 'Karaoke',
-                          disabledReason: r.linh_vuc_hien_thi !== 'Karaoke' ? 'Chỉ hỗ trợ Karaoke' : 'Bật CREATE_CERTIFICATE_WRITE_ENABLED, CREATE_CERTIFICATE_DRAFT_ONLY_ENABLED, CREATE_CERTIFICATE_CLONE_ONLY_ENABLED để tạo GCN nháp trên DB clone.',
+                          disabledReason: r.linh_vuc_hien_thi !== 'Karaoke' ? 'Chỉ hỗ trợ Karaoke' : undefined,
                         },
                         {
-                          label: 'In / Gửi',
+                          label: 'In / Gui',
                           icon: <PrinterIcon className="h-4 w-4" />,
-                          onClick: () => {},
-                          disabled: true,
-                          disabledReason: 'Chưa có workflow in/gửi chính thức',
+                          onClick: () => onNavigate('contracts.print'),
                         },
                         {
                           divider: true,
@@ -888,8 +883,8 @@ export function ContractsListPage({
                           icon: <Trash2Icon className="h-4 w-4" />,
                           tone: 'danger',
                           onClick: () => openDeleteConfirm(r),
-                          disabled: !isSafeTestRecord(r) && !isAdmin,
-                          disabledReason: isSafeTestRecord(r) ? undefined : (!isAdmin ? 'Chi xoa record test/clone.' : undefined),
+                          disabled: !canDelete,
+                          disabledReason: !canDelete ? 'Không có quyền xóa' : undefined,
                         }]
                         } />
                       
@@ -920,7 +915,7 @@ export function ContractsListPage({
       </ContentCard>
 
       {/* ============================================================ */}
-      {/* ACTION MODAL (Xuất Word / Xem dữ liệu GCN / Tạo GCN nháp / Xóa) */}
+      {/* ACTION MODAL (Xuất Word / Xem dữ liệu GCN / Xóa) */}
       {/* ============================================================ */}
       {actionModal.action && (
         <Modal
@@ -931,8 +926,6 @@ export function ContractsListPage({
               ? `Word preview — ${actionModal.contractNo}`
               : actionModal.action === 'gcn_context'
               ? `Dữ liệu GCN — ${actionModal.contractNo}`
-              : actionModal.action === 'gcn_create'
-              ? `Tạo GCN nháp — ${actionModal.contractNo}`
               : actionModal.action === 'delete_confirm'
               ? `Xác nhận xóa — ${actionModal.contractNo}`
               : actionModal.action === 'delete_result'
@@ -1147,70 +1140,6 @@ export function ContractsListPage({
               </div>
             )}
 
-            {/* GCN Draft Create Result */}
-            {actionModal.action === 'gcn_create' && actionModal.draftResult && (
-              <div className="space-y-3">
-                <div className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm ${actionModal.draftResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                  {actionModal.draftResult.ok ? (
-                    <CheckCircle2Icon className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <XCircleIcon className="h-4 w-4 shrink-0" />
-                  )}
-                  <span className="font-semibold">
-                    {actionModal.draftResult.ok
-                      ? 'GCN nháp đã được tạo thành công'
-                      : 'Tạo GCN nháp thất bại'}
-                  </span>
-                </div>
-
-                {actionModal.draftResult.ok && actionModal.draftResult.created && (
-                  <div className="rounded-lg bg-zinc-50 p-4 text-xs space-y-2">
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                      <div><span className="text-zinc-500">certificate_id:</span> <span className="font-medium">{actionModal.draftResult.created.certificate_id}</span></div>
-                      <div><span className="text-zinc-500">contract_id:</span> <span className="font-medium">{actionModal.draftResult.created.contract_id}</span></div>
-                      <div><span className="text-zinc-500">contract_no:</span> <span className="font-medium">{actionModal.draftResult.created.contract_no}</span></div>
-                      <div><span className="text-zinc-500">certificate_no:</span> <span className="font-medium">{actionModal.draftResult.created.certificate_no || '(NULL)'}</span></div>
-                      <div><span className="text-zinc-500">status:</span> <span className="font-medium">{actionModal.draftResult.created.status}</span></div>
-                    </div>
-                    <div className="border-t border-zinc-200 pt-2 mt-2 space-y-1">
-                      <div>
-                        <span className="text-zinc-500">write_performed:</span>{' '}
-                        <span className={actionModal.draftResult.write_performed ? 'text-rose-600 font-bold' : 'text-emerald-600'}>
-                          {actionModal.draftResult.write_performed ? 'YES ⚠️' : 'NO ✓'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-zinc-500">print_enabled:</span>{' '}
-                        <span className="text-emerald-600">false ✓</span>
-                      </div>
-                      <div>
-                        <span className="text-zinc-500">qr_generation_enabled:</span>{' '}
-                        <span className="text-emerald-600">false ✓</span>
-                      </div>
-                    </div>
-                    {actionModal.draftResult.warnings && actionModal.draftResult.warnings.length > 0 && (
-                      <div className="border-t border-zinc-200 pt-2 mt-2">
-                        <span className="text-zinc-500">Warnings:</span>
-                        <div className="mt-1 space-y-0.5">
-                          {actionModal.draftResult.warnings.map((w, i) => (
-                            <p key={i} className="text-amber-600">- {w.message}</p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {!actionModal.draftResult.ok && actionModal.draftResult.errors && actionModal.draftResult.errors.length > 0 && (
-                  <div className="rounded-lg bg-rose-50 p-3 text-xs space-y-1">
-                    <span className="text-zinc-500 font-semibold">Errors:</span>
-                    {actionModal.draftResult.errors.map((e, i) => (
-                      <p key={i} className="text-rose-600">- {e.field}: {e.message}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Delete Confirm */}
             {actionModal.action === 'delete_confirm' && !actionModal.loading && (
               <div className="space-y-3">
@@ -1218,9 +1147,9 @@ export function ContractsListPage({
                   <div className="flex items-start gap-2">
                     <AlertTriangleIcon className="h-4 w-4 shrink-0 mt-0.5" />
                     <div>
-                      {isAdmin ? (
+                      {currentUser?.role === 'super_admin' ? (
                         <>
-                          <p className="font-semibold">Xác nhận xóa vĩnh viễn khoi DB chinh</p>
+                          <p className="font-semibold">Xác nhận xóa vĩnh viễn khỏi DB chính</p>
                           <p className="mt-1 text-xs text-amber-700">
                             Hợp đồng: <strong>{actionModal.contractNo}</strong>
                           </p>
@@ -1231,17 +1160,17 @@ export function ContractsListPage({
                             Đơn vị: <strong>{actionModal.customerName || '(không rõ)'}</strong>
                           </p>
                           <p className="mt-2 text-xs text-amber-700 font-semibold">
-                            Admin dang xoa record khoi DB chinh. Thao tac nay se xoa vinh vien record tren DB chinh (port 5432).
+                            Admin đang xóa record khỏi DB chính. Thao tác này không thể hoàn tác.
                           </p>
                         </>
                       ) : (
                         <>
-                          <p className="font-semibold">Xoa record test nay khoi DB chinh?</p>
+                          <p className="font-semibold">Xác nhận xóa hợp đồng này?</p>
                           <p className="mt-1 text-xs text-amber-700">
                             Hợp đồng: <strong>{actionModal.contractNo}</strong>
                           </p>
-                          <p className="mt-0.5 text-xs text-amber-700">
-                            Không ảnh hưởng app cũ.
+                          <p className="mt-2 text-xs text-amber-700">
+                            Thao tác này không thể hoàn tác.
                           </p>
                         </>
                       )}
@@ -1253,7 +1182,7 @@ export function ContractsListPage({
                   <Button variant="primary" tone="danger" onClick={confirmDelete}
                     leftIcon={<Trash2Icon className="h-4 w-4" />}
                   >
-                    {isAdmin ? 'Xoa vinh vien khoi DB chinh' : 'Xoa record test'}
+                    {currentUser?.role === 'super_admin' ? 'Xóa vĩnh viễn' : 'Xác nhận xóa'}
                   </Button>
                 </div>
               </div>

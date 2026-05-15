@@ -55,6 +55,7 @@ export const ROLE_DEFS = {
     'contracts.view',
     'contracts.create',
     'contracts.edit',
+    'contracts.delete',
     'contracts.export',
     'certificates.view',
     'certificates.create',

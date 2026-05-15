@@ -1,0 +1,8 @@
+feat: sync full frontend changes from local development
+
+- Update all UI components (AppShell, Sidebar, Topbar, etc.)
+- Add new pages: CertificateDetailPage, CertificatePrintPage
+- Add new clients: adminClient, reportsClient, usersClient
+- Update contract creation flow with new form validation
+- Add certificate management and printing features
+- Update API clients and authentication flow

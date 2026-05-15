@@ -7,6 +7,7 @@ import {
   FileSpreadsheetIcon,
   FileTextIcon,
   HashIcon,
+  PlusIcon,
   PrinterIcon,
   RefreshCwIcon,
   XCircleIcon } from
@@ -26,24 +27,20 @@ import { TableSkeleton } from '../components/app-ui/TableSkeleton';
 import { EmptyState } from '../components/app-ui/EmptyState';
 import { SummaryHero } from '../components/app-ui/SummaryHero';
 import { CertificateQuickView } from '../components/app-ui/CertificateQuickView';
-import { CertificatePaperPreview } from '../modules/certificates/CertificatePaperPreview';
-import { GCN_LOCKED_OFFSET } from '../modules/certificates/certificateLayoutLocked';
-import type { CertificatePreviewData } from '../modules/certificates/certificateTypes';
 import {
   CERTIFICATE_STATUS_LABEL,
   CertificateRecord,
   CertificateStatus } from
 '../data/certificateRecords';
 import {
-  getCertificate,
-  getCertificateContextDryRun,
   listCertificates,
   type ApiCertificateRecord,
-  type CertificatePreviewContext,
   type CertificatesSummary } from
 '../lib/certificatesClient';
 import { formatDate, formatNumber } from '../lib/format';
 import { RouteKey } from '../data/routes';
+
+import { CertificateDetailPage } from './CertificateDetailPage';
 
 const TOKEN_KEY = 'vcpmc_new_app_access_token';
 
@@ -107,30 +104,6 @@ function mapApiRecord(row: ApiCertificateRecord): CertificateRecord {
   };
 }
 
-function contextToPreviewData(context: CertificatePreviewContext, offsetX: number, offsetY: number): CertificatePreviewData {
-  return {
-    certificate_no: context.certificate_no || '',
-    certificate_issue_date: context.certificate_issue_date || '',
-    certificate_issue_day: context.certificate_issue_day || '',
-    certificate_issue_month: context.certificate_issue_month || '',
-    certificate_issue_year: context.certificate_issue_year || '',
-    organization_name: context.organization_name || '',
-    business_registration_no: context.business_registration_no || '',
-    address: context.address || '',
-    business_sign_name: context.business_sign_name || '',
-    business_location: context.business_location || context.address || '',
-    contract_no: context.contract_no || '',
-    effective_from: context.effective_from || '',
-    effective_to: context.effective_to || '',
-    gcn_scope_col_1_text: context.gcn_scope_col_1_text || '',
-    gcn_scope_col_2_text: context.gcn_scope_col_2_text || '',
-    gcn_scope_col_3_text: context.gcn_scope_col_3_text || '',
-    qr_image_data: context.qr_image_data || '',
-    offset_x_mm: offsetX,
-    offset_y_mm: offsetY,
-  };
-}
-
 export function CertificatesPage({
   onNavigate: _onNavigate
 }: {onNavigate: (k: RouteKey) => void;}) {
@@ -141,9 +114,8 @@ export function CertificatesPage({
   const [yearFilter, setYearFilter] = useState('');
   const [hasNumberFilter, setHasNumberFilter] = useState('');
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [detailView, setDetailView] = useState<{ id: number } | null>(null);
   const [quickView, setQuickView] = useState<CertificateRecord | null>(null);
-  const [previewContext, setPreviewContext] = useState<CertificatePreviewContext | null>(null);
-  const [contextError, setContextError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -151,9 +123,6 @@ export function CertificatesPage({
   const [pageSize, setPageSize] = useState(30);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [previewOffsetX, setPreviewOffsetX] = useState(GCN_LOCKED_OFFSET.defaultXmm);
-  const [previewOffsetY, setPreviewOffsetY] = useState(GCN_LOCKED_OFFSET.defaultYmm);
-  const [showPreviewSafeArea, setShowPreviewSafeArea] = useState(true);
 
   const hasActiveFilter = !!keyword || !!statusFilter || !!yearFilter || !!hasNumberFilter;
 
@@ -210,27 +179,6 @@ export function CertificatesPage({
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSelected = !allSelected && visibleIds.some((id) => selected.has(id));
 
-  const previewCertificate = useMemo<CertificatePreviewData>(() => {
-    if (previewContext) return contextToPreviewData(previewContext, previewOffsetX, previewOffsetY);
-    return {
-      certificate_no: '0137/2026.GCN_KA',
-      certificate_issue_date: '2026-05-10',
-      organization_name: 'CONG TY TNHH DEMO GCN CLONE ONLY',
-      business_registration_no: '0312345678',
-      address: 'Dia chi don vi demo tren DB clone',
-      business_sign_name: 'KARAOKE DEMO LOCKED LAYOUT',
-      business_location: 'Dia diem su dung demo tren form in san',
-      contract_no: 'CLONE-NEWAPP-GCN-P0-PREVIEW',
-      effective_from: '2026-05-10',
-      effective_to: '2027-05-09',
-      gcn_scope_col_1_text: 'Phong 101\nPhong 102\nPhong 103',
-      gcn_scope_col_2_text: '3 phong',
-      gcn_scope_col_3_text: 'Karaoke\n(phong)',
-      offset_x_mm: previewOffsetX,
-      offset_y_mm: previewOffsetY,
-    };
-  }, [previewContext, previewOffsetX, previewOffsetY]);
-
   const toggleAll = () => {
     if (allSelected) setSelected(new Set());
     else setSelected(new Set(visibleIds));
@@ -255,21 +203,6 @@ export function CertificatesPage({
 
   const openQuickView = async (record: CertificateRecord) => {
     setQuickView(record);
-    setContextError('');
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return;
-    try {
-      const [detail, contextResponse] = await Promise.all([
-        getCertificate(token, record.id),
-        getCertificateContextDryRun(token, record.id),
-      ]);
-      setQuickView(mapApiRecord(detail.certificate));
-      setPreviewContext(contextResponse.context);
-      setPreviewOffsetX(Number(contextResponse.context.offset_x_mm || 0));
-      setPreviewOffsetY(Number(contextResponse.context.offset_y_mm || 0));
-    } catch (error: any) {
-      setContextError(String(error?.message || 'Không tải được context dry-run.'));
-    }
   };
 
   const statusTone = (record: CertificateRecord) =>
@@ -280,7 +213,7 @@ export function CertificatesPage({
       <PageHeader
         breadcrumb="/bg/contracts/certificates"
         title="Quản lý giấy chứng nhận"
-        description="Đọc GCN từ DB clone. Pha này chưa cấp số, chưa in, chưa lưu offset."
+        description="Danh sách giấy chứng nhận từ hợp đồng background"
         actions={
           <>
             <Button
@@ -290,14 +223,14 @@ export function CertificatesPage({
               disabled={loading}>
               Làm mới
             </Button>
-            <Button variant="secondary" leftIcon={<FileSpreadsheetIcon className="h-4 w-4" />} disabled title="GCN-P1 read-only">
-              Xuất Excel đang khóa
+            <Button variant="secondary" leftIcon={<FileSpreadsheetIcon className="h-4 w-4" />} disabled title="Đang phát triển">
+              Xuất Excel
             </Button>
-            <Button variant="secondary" leftIcon={<PrinterIcon className="h-4 w-4" />} disabled title="GCN-P1 read-only">
-              In hàng loạt đang khóa
+            <Button variant="secondary" leftIcon={<PrinterIcon className="h-4 w-4" />} disabled title="Đang phát triển">
+              In hàng loạt
             </Button>
-            <Button variant="primary" leftIcon={<AwardIcon className="h-4 w-4" />} disabled title="GCN-P1 read-only">
-              Tạo GCN đang khóa
+            <Button variant="primary" leftIcon={<PlusIcon className="h-4 w-4" />} disabled title="Tạo từ hợp đồng">
+              Tạo GCN
             </Button>
           </>
         } />
@@ -322,74 +255,6 @@ export function CertificatesPage({
           { label: 'Đã in nhiều lần', value: formatNumber(summary.printed_multiple), tone: 'violet', icon: <PrinterIcon className="h-4 w-4" />, hint: 'print_count > 1' },
           { label: 'Chưa cấp số', value: formatNumber(summary.missing_number), tone: 'rose', icon: <AlertTriangleIcon className="h-4 w-4" />, hint: 'Không tự cấp số' },
         ]} />
-
-      <ContentCard
-        title={previewContext ? 'Context dry-run only - chưa ghi DB, chưa in, chưa tạo QR.' : 'GCN preview shell only - chưa tạo GCN, chưa ghi DB, chưa in.'}
-        description="Preview dùng hằng số layout đã khóa từ app cũ. Offset chỉ dịch trên màn hình, không lưu DB và không gọi in."
-        accent>
-        <div className="grid gap-5 xl:grid-cols-[320px_1fr]">
-          <div className="space-y-4">
-            <div className="rounded-lg bg-amber-50/70 p-3 ring-1 ring-amber-200">
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-800">
-                Locked layout
-              </p>
-              <p className="mt-1 text-sm leading-5 text-amber-900">
-                GCN dùng giấy in sẵn. Không auto-center, không redesign, không đổi offset khóa.
-              </p>
-            </div>
-            {previewContext &&
-              <div className="rounded-lg bg-emerald-50/70 p-3 ring-1 ring-emerald-200">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-emerald-800">
-                  Context dry-run
-                </p>
-                <p className="mt-1 text-sm leading-5 text-emerald-900">
-                  Context dry-run only - chưa ghi DB, chưa in, chưa tạo QR.
-                </p>
-                <p className="mt-1 text-xs text-emerald-800">
-                  Nguồn: {previewContext.mode === 'existing_certificate' ? 'certificate_records' : 'contract_records'}
-                </p>
-                {!previewContext.certificate_no &&
-                  <p className="mt-1 text-xs font-medium text-amber-800">
-                    Chưa cấp số GCN: preview để trống số, không tự sinh số.
-                  </p>
-                }
-              </div>
-            }
-            {contextError &&
-              <div className="rounded-lg bg-rose-50/70 p-3 text-sm text-rose-700 ring-1 ring-rose-200">
-                {contextError}
-              </div>
-            }
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
-              <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
-                Dịch ngang preview (mm)
-                <input
-                  className="h-9 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
-                  type="number"
-                  step={String(GCN_LOCKED_OFFSET.stepMm)}
-                  value={String(previewOffsetX)}
-                  onChange={(event) => setPreviewOffsetX(Number(event.target.value || 0))}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
-                Dịch dọc preview (mm)
-                <input
-                  className="h-9 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
-                  type="number"
-                  step={String(GCN_LOCKED_OFFSET.stepMm)}
-                  value={String(previewOffsetY)}
-                  onChange={(event) => setPreviewOffsetY(Number(event.target.value || 0))}
-                />
-              </label>
-            </div>
-            <Checkbox checked={showPreviewSafeArea} onChange={setShowPreviewSafeArea} label="Hiện khung canh" />
-            <Button variant="secondary" leftIcon={<PrinterIcon className="h-4 w-4" />} disabled title="GCN-P1 read-only">
-              In đang khóa
-            </Button>
-          </div>
-          <CertificatePaperPreview certificate={previewCertificate} showSafeArea={showPreviewSafeArea} showCoordinates />
-        </div>
-      </ContentCard>
 
       <FilterBar
         hasActive={hasActiveFilter}
@@ -566,9 +431,8 @@ export function CertificatesPage({
                         <td className="pr-3 pl-1 align-top text-right">
                           <RowActionsMenu
                             actions={[
-                              { label: 'Xem chi tiết', icon: <EyeIcon className="h-4 w-4" />, onClick: () => openQuickView(record) },
-                              { label: 'Cấp/sửa số GCN đang khóa', icon: <HashIcon className="h-4 w-4" />, onClick: () => {} },
-                              { label: 'In đang khóa', icon: <PrinterIcon className="h-4 w-4" />, onClick: () => {} },
+                              { label: 'Mở chi tiết', icon: <EyeIcon className="h-4 w-4" />, onClick: () => setDetailView({ id: record.id }) },
+                              { label: 'Cấp/sửa số GCN', icon: <HashIcon className="h-4 w-4" />, onClick: () => setDetailView({ id: record.id }) },
                             ]}
                           />
                         </td>
@@ -598,6 +462,14 @@ export function CertificatesPage({
       </ContentCard>
 
       <CertificateQuickView record={quickView} onClose={() => setQuickView(null)} />
+
+      {detailView && (
+        <CertificateDetailPage
+          certificateId={detailView.id}
+          onNavigate={_onNavigate}
+          onBack={() => setDetailView(null)}
+        />
+      )}
     </Page>
   );
 }

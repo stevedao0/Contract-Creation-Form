@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { ROLE_DEFS } from "../data/authData";
-import { devLogin as apiDevLogin, getMe, login as apiLogin, logout as apiLogout, MeResponse } from "./authClient";
-
-const TOKEN_KEY = "vcpmc_new_app_access_token";
+import { devLogin as apiDevLogin, getMe, login as apiLogin, logout as apiLogout, MeResponse, TOKEN_KEY } from "./authClient";
 
 type AppRole = "super_admin" | "manager" | "staff";
 

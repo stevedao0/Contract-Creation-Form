@@ -182,44 +182,6 @@ export type ApiContractDetail = {
   raw: Record<string, unknown>;
 };
 
-export type DryRunIssue = {
-  field: string;
-  message: string;
-  severity: "error" | "warning" | string;
-};
-
-export type DryRunDbMappingItem = {
-  table: string;
-  column: string;
-  value_preview?: string | number | boolean | null;
-  status: "ok" | "missing" | "required" | "warning" | string;
-};
-
-export type DryRunCreateContractResponse = {
-  ok: boolean;
-  mode: "dry_run" | string;
-  can_create: boolean;
-  errors: DryRunIssue[];
-  warnings: DryRunIssue[];
-  normalized: Record<string, unknown>;
-  db_mapping: DryRunDbMappingItem[];
-  duplicate_checks: {
-    contract_no_exists: boolean;
-    matches: {
-      source: string;
-      id: number;
-      contract_no: string;
-      contract_year?: number | null;
-      customer_name?: string | null;
-    }[];
-  };
-  permission: {
-    allowed: boolean;
-    reason: string;
-  };
-  write_performed: boolean;
-};
-
 export type CreateContractResponse = {
   ok: boolean;
   mode: string;
@@ -241,7 +203,7 @@ export type CreateContractResponse = {
     db_name?: string | null;
   } | null;
   created_preview?: Record<string, unknown> | null;
-  dry_run: DryRunCreateContractResponse;
+  errors?: string[];
 };
 
 export type ContractsQuery = {
@@ -267,20 +229,6 @@ export function getContracts(token: string, query: ContractsQuery): Promise<Cont
 
 export function getContractDetail(token: string, id: number): Promise<ApiContractDetail> {
   return apiRequest<ApiContractDetail>(`/contracts/${id}`, { token });
-}
-
-export function dryRunCreateContract(
-  token: string,
-  payload: {
-    draft: CreateContractDraft;
-    client_preflight: ContractRecordsCandidate;
-  }
-): Promise<DryRunCreateContractResponse> {
-  return apiRequest<DryRunCreateContractResponse>("/contracts/dry-run-create", {
-    method: "POST",
-    token,
-    body: payload
-  });
 }
 
 export function createContractCloneOnly(
@@ -311,7 +259,7 @@ export type SimpleCreateContractResponse = {
   customer_name: string | null;
   db_name: string | null;
   write_performed: boolean;
-  errors: string[];
+  errors: any[];
 };
 
 export function simpleCreateContract(
@@ -326,6 +274,163 @@ export function simpleCreateContract(
     token,
     body: payload
   });
+}
+
+// =============================================================================
+// OFFICIAL CREATE + DOWNLOAD DOCX (PHASE FIX-CREATE-DOWNLOAD-01)
+// =============================================================================
+
+export type CreateAndExportDocxResponse = {
+  ok: boolean;
+  mode: string;
+  error_code?: string;
+  message: string;
+  contract_id: number | null;
+  contract_no: string | null;
+  docx_path: string | null;
+  docx_export_skipped: boolean;
+  docx_skip_reason: string | null;
+  existing_contract_id?: number | null;
+  suggested_next?: string | null;
+};
+
+export type CreateErrorResponse = {
+  ok: false;
+  mode: string;
+  error_code?: string;
+  message: string;
+  contract_id: null;
+  contract_no: string | null;
+  docx_path: null;
+  docx_export_skipped: boolean;
+  docx_skip_reason: string | null;
+  existing_contract_id?: number | null;
+  suggested_next?: string | null;
+};
+
+export type CheckContractNoResponse = {
+  ok: boolean;
+  available: boolean;
+  contract_no: string;
+  existing_contract_id: number | null;
+  message: string;
+  suggested_next: string | null;
+};
+
+export function createAndExportDocx(
+  token: string,
+  payload: {
+    draft: CreateContractDraft;
+    client_preflight: ContractRecordsCandidate;
+  }
+): Promise<CreateAndExportDocxResponse> {
+  return fetchWithCreateErrorHandling("/contracts/create-and-export-docx", {
+    method: "POST",
+    token,
+    body: payload
+  });
+}
+
+export function checkContractNoAvailability(params: {
+  contract_no?: string;
+  short_no?: string;
+  year?: number;
+  region_code?: string;
+  permission_code?: string;
+}): Promise<CheckContractNoResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.contract_no) searchParams.set('contract_no', params.contract_no);
+  if (params.short_no) searchParams.set('short_no', params.short_no);
+  if (params.year) searchParams.set('year', String(params.year));
+  if (params.region_code) searchParams.set('region_code', params.region_code);
+  if (params.permission_code) searchParams.set('permission_code', params.permission_code);
+
+  return apiRequest<CheckContractNoResponse>(`/contracts/check-contract-no?${searchParams.toString()}`);
+}
+
+async function fetchWithCreateErrorHandling<T extends object>(
+  path: string,
+  options: { method?: string; token?: string; body?: unknown }
+): Promise<T> {
+  const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
+  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+  
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+  if (options.token) {
+    headers.Authorization = `Bearer ${options.token}`;
+  }
+
+  const res = await fetch(url, {
+    method: options.method || "GET",
+    headers,
+    body: options.body == null ? undefined : JSON.stringify(options.body)
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  // Always return data, including error responses
+  // Caller should check data.ok to determine success
+  if (data && typeof data === 'object' && 'ok' in data) {
+    (data as any)._status = res.status;
+    (data as any)._isNetworkError = false;
+    return data as T;
+  }
+
+  // For non-standard responses, wrap in error format
+  if (!res.ok) {
+    const wrapped: any = {
+      ok: false,
+      mode: 'error',
+      message: data?.message || `HTTP ${res.status}`,
+      contract_id: null,
+      contract_no: null,
+      docx_path: null,
+      docx_export_skipped: true,
+      docx_skip_reason: `HTTP ${res.status}`,
+      _status: res.status,
+      _isNetworkError: false,
+    };
+    return wrapped as T;
+  }
+
+  return data as T;
+}
+
+export async function downloadDocxFile(
+  token: string,
+  contractId: number,
+  templateCode?: string
+): Promise<Blob> {
+  // Build URL with optional template_code query param (Phase BACKGROUND-TEMPLATE-REFACTOR)
+  let url = `/api/contracts/${contractId}/download-docx`;
+  if (templateCode) {
+    url += `?template_code=${encodeURIComponent(templateCode)}`;
+  }
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Download failed");
+  }
+  return response.blob();
+}
+
+export function triggerFileDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export type KaraokeMakeHdPreviewResponse = {
@@ -540,52 +645,6 @@ export function calculateKvcNd17(
 }
 
 // =============================================================================
-// EXPORT DOCX TEXT DRY-RUN API (PHASE EXPORT-02)
-// =============================================================================
-
-export type ExportDryRunResult = {
-  ok: boolean;
-  contract_id: number;
-  domain: string;
-  domain_label: string;
-  template_path: string;
-  temp_output_path: string | null;
-  file_size: number | null;
-  placeholders_attempted: string[];
-  placeholders_in_context: number;
-  render_enabled: boolean;
-  db_attach_enabled: boolean;
-  file_write_performed: boolean;
-  db_write_performed: boolean;
-  docx_path_attached: boolean;
-  pricing_blocks_inserted: boolean;
-  warnings: string[];
-  message: string | null;
-};
-
-/**
- * Call export DOCX text dry-run API.
- * POST /api/contracts/{contract_id}/export-docx-text-dry-run
- *
- * This is a DRY-RUN ONLY endpoint:
- * - Renders text placeholders to a temporary file
- * - Does NOT write to permanent storage
- * - Does NOT update DB
- * - Does NOT insert pricing/usage blocks
- *
- * Only KVC and Karaoke domains are supported in this phase.
- */
-export function exportDocxTextDryRun(
-  token: string,
-  contractId: number
-): Promise<ExportDryRunResult> {
-  return apiRequest<ExportDryRunResult>(`/contracts/${contractId}/export-docx-text-dry-run`, {
-    method: "POST",
-    token,
-  });
-}
-
-// =============================================================================
 // EXPORT DOCX PREVIEW API (PHASE EXPORT-05)
 // =============================================================================
 
@@ -707,6 +766,116 @@ export function exportKaraokeSyntheticPreview(
     token,
     body: request,
   });
+}
+
+// =============================================================================
+// CONTRACT TEMPLATE SEARCH & PREFILL APIs (Phase TEMPLATE-CREATE-01)
+// =============================================================================
+
+export type TemplateSearchItem = {
+  id: number;
+  contract_no: string;
+  customer_name: string | null;
+  legal_name: string | null;
+  tax_code: string | null;
+  legal_full_address: string | null;
+  usage_full_address: string | null;
+  domain: string | null;
+  linh_vuc: string | null;
+  domain_group: string | null;
+  field_code: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  renewal_status: string | null;
+};
+
+export type TemplateSearchResponse = {
+  items: TemplateSearchItem[];
+  total: number;
+  query: string | null;
+};
+
+export type PrefillSourceResponse = {
+  ok: boolean;
+  contract_id: number;
+  contract_no: string;
+  // Customer info
+  legal_name: string | null;
+  brand_name: string | null;
+  representative_name: string | null;
+  representative_title: string | null;
+  tax_code: string | null;
+  cccd: string | null;
+  phone: string | null;
+  email: string | null;
+  // Legal address
+  legal_address_line: string | null;
+  legal_ward: string | null;
+  legal_province: string | null;
+  legal_full_address: string | null;
+  // Usage address
+  usage_same_as_legal: boolean;
+  usage_address_line: string | null;
+  usage_ward: string | null;
+  usage_province: string | null;
+  usage_full_address: string | null;
+  // Domain info
+  domain_code: string | null;
+  domain_display_name: string | null;
+  domain_group: string | null;
+  field_code: string | null;
+  // Music usage areas
+  music_usage_areas: Array<{ area_name: string; scale_description: string; music_usage_type: string }>;
+  // Karaoke info
+  karaoke_type: string | null;
+  area_group: string | null;
+  total_rooms: number | null;
+  total_boxes: number | null;
+  room_sections: Array<{ key: string; roomCount: number; roomNames: string }>;
+  // Royalty info
+  royalty_amount_before_vat: number | null;
+  vat_rate: number | null;
+  vat_amount: number | null;
+  royalty_amount_after_vat: number | null;
+  royalty_amount_in_words: string | null;
+  // Notes
+  contract_terms_note: string | null;
+  internal_note: string | null;
+};
+
+/**
+ * Search contracts to use as template for creating new contract.
+ * GET /api/contracts/template-search?q=...
+ */
+export function searchContractsForTemplate(
+  token: string,
+  params: { q?: string; page?: number; page_size?: number }
+): Promise<TemplateSearchResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.q) searchParams.set('q', params.q);
+  if (params.page) searchParams.set('page', String(params.page));
+  if (params.page_size) searchParams.set('page_size', String(params.page_size));
+
+  return apiRequest<TemplateSearchResponse>(
+    `/contracts/template-search?${searchParams.toString()}`,
+    { token }
+  );
+}
+
+/**
+ * Get sanitized contract data to populate a new contract form.
+ * GET /api/contracts/{id}/prefill-source
+ *
+ * The source contract is NOT modified.
+ */
+export function getContractPrefillSource(
+  token: string,
+  contractId: number
+): Promise<PrefillSourceResponse> {
+  return apiRequest<PrefillSourceResponse>(
+    `/contracts/${contractId}/prefill-source`,
+    { token }
+  );
 }
 
 // =============================================================================

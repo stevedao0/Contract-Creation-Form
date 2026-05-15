@@ -1,5 +1,11 @@
 import { apiRequest } from "./apiClient";
 
+export const TOKEN_KEY = "vcpmc_new_app_access_token";
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
 export type ApiUser = {
   id: number;
   email?: string | null;

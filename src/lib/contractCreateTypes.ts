@@ -125,6 +125,30 @@ export type CommonContractInfo = {
 };
 
 // =============================================================================
+// ADDRESS STRUCTURE (Post-2025 merger: no Quận/Huyện)
+// =============================================================================
+
+export type AddressBlock = {
+  /** Số nhà, tên đường, khu phố/thôn... */
+  addressLine: string;
+  /** Phường/Xã sau sáp nhập 2025 */
+  ward: string;
+  /** Tỉnh/Thành phố */
+  province: string;
+  /** Địa chỉ đầy đủ, auto-built từ các trường trên */
+  fullAddress: string;
+};
+
+/**
+ * Build full address from parts.
+ * Format: [addressLine], [ward], [province]
+ */
+export const buildFullAddress = (addressLine: string, ward: string, province: string): string => {
+  const parts = [addressLine, ward, province].filter((p) => p.trim());
+  return parts.join(', ');
+};
+
+// =============================================================================
 // CUSTOMER / ENTITY INFO (shared across all Background domains)
 // =============================================================================
 
@@ -145,8 +169,16 @@ export type CustomerInfo = {
   phone: string;
   /** Email liên hệ */
   email: string;
-  /** Địa chỉ pháp lý */
+  /** Địa chỉ pháp lý (full text - backward compatible) */
   legalAddress: string;
+  /** Địa chỉ pháp lý - số nhà/đường */
+  legalAddressLine: string;
+  /** Địa chỉ pháp lý - Phường/Xã */
+  legalWard: string;
+  /** Địa chỉ pháp lý - Tỉnh/Thành phố */
+  legalProvince: string;
+  /** Địa chỉ pháp lý đầy đủ (auto-built) */
+  legalFullAddress: string;
 };
 
 // =============================================================================
@@ -154,13 +186,23 @@ export type CustomerInfo = {
 // =============================================================================
 
 export type BusinessLocationInfo = {
-  /** Địa chỉ sử dụng / business usage address */
-  usageAddress: string;
+  /** Số nhà, tên đường, khu phố/thôn... */
+  usageAddressLine: string;
+  /** Phường/Xã sau sáp nhập 2025 */
+  usageWard: string;
   /** Tỉnh/Thành phố */
+  usageProvince: string;
+  /** Địa chỉ sử dụng đầy đủ (auto-built) */
+  usageFullAddress: string;
+  /** Địa chỉ sử dụng full text - backward compatible (deprecated, use usageFullAddress) */
+  usageAddress: string;
+  /** Nếu true: usage = legal. User không nhập riêng */
+  usageSameAsLegal: boolean;
+  /** @deprecated Dùng usageProvince */
   city: string;
-  /** Quận/Phường */
+  /** @deprecated Bỏ sau sáp nhập 2025 */
   district: string;
-  /** Phường/Xã */
+  /** @deprecated Dùng usageWard */
   ward: string;
 };
 
@@ -208,6 +250,16 @@ export type DomainSelectionInfo = {
   domainCode: BackgroundDomainCode;
   /** Display name of domain */
   domainDisplayName: string;
+  /** Loại hợp đồng: NEW, PENDING_RENEWAL (tái ký), FRAME_CONTRACT */
+  renewalStatus: CreateContractRenewalStatus;
+  /** ID hợp đồng gốc tham chiếu (khi tái ký) */
+  referenceContractId: number | null;
+  /** Số hợp đồng gốc tham chiếu */
+  referenceContractNo: string;
+  /** ID hợp đồng dùng làm mẫu nhập liệu (Phase TEMPLATE-CREATE-01) */
+  sourceTemplateContractId: number | null;
+  /** Số hợp đồng dùng làm mẫu nhập liệu */
+  sourceTemplateContractNo: string;
 };
 
 // =============================================================================
@@ -270,6 +322,21 @@ export type AreaUsageDisplayMode = 'auto' | 'text' | 'table';
 export type KvcPricingMode = '' | 'VCPMC_TARIFF' | 'ND17';
 
 /**
+ * Music usage area - a row in the Word-like music usage table.
+ * Generic for all Background domains (Karaoke, Cafe, Restaurant, Hotel, etc.)
+ */
+export type MusicUsageArea = {
+  /** Unique ID for this area row */
+  id: string;
+  /** Vị trí / khu vực sử dụng âm nhạc */
+  areaName: string;
+  /** Quy mô, sức chứa (Số phòng, số chỗ, diện tích...) */
+  scaleDescription: string;
+  /** Hình thức sử dụng âm nhạc */
+  musicUsageType: string;
+};
+
+/**
  * A single business usage location for area-based domains.
  * One contract can have one or many locations.
  */
@@ -295,6 +362,8 @@ export type BusinessUsageLocation = {
 export type AreaBasedUsageInfo = {
   /** Danh sách địa điểm kinh doanh / business locations */
   locations: BusinessUsageLocation[];
+  /** Danh sách khu vực sử dụng âm nhạc (Word-like table) */
+  musicUsageAreas: MusicUsageArea[];
   /** Cách hiển thị khu vực kinh doanh khi xuất hợp đồng */
   displayMode: AreaUsageDisplayMode;
   /** Preview text (computed, not persisted) */
@@ -306,6 +375,16 @@ export type AreaBasedUsageInfo = {
   };
   /** Phương án tính tiền KVC (placeholder - not implemented) */
   pricingMode?: KvcPricingMode;
+  /** VAT rate (%) - default 8 */
+  vatRate?: number;
+  /** Tiền bản quyền trước thuế - user input */
+  royaltyAmountBeforeVat?: number;
+  /** Tiền thuế GTGT - calculated */
+  vatAmount?: number;
+  /** Tổng tiền sau thuế - calculated */
+  royaltyAmountAfterVat?: number;
+  /** Số tiền bằng chữ - calculated */
+  royaltyAmountInWords?: string;
   /** @deprecated Use locations instead */
   usageKind: 'NHAC_NEN' | 'LIVE_ACOUSTIC' | 'DJ' | 'KARAOKE' | 'MIXED';
   /** @deprecated Use locations[].musicUsageAreaM2 instead */
@@ -360,6 +439,7 @@ export type CalculationModuleCode =
   | 'CAFE'
   | 'NHA_HANG'
   | 'KHACH_SAN'
+  | 'MANUAL_FEE'
   | 'CUSTOM_PLACEHOLDER';
 
 /** Calculation module status */
@@ -418,6 +498,7 @@ export type CalculationLineInput =
   | CafeInput
   | NhaHangInput
   | KhachSanInput
+  | ManualFeeInput
   | CustomPlaceholderInput;
 
 export type KaraokePhongInput = {
@@ -472,6 +553,18 @@ export type KhachSanInput = {
   module: 'KHACH_SAN';
   /** Placeholder - not implemented yet */
   locationAreas: { locationId: string; areaM2: number }[];
+};
+
+export type ManualFeeInput = {
+  module: 'MANUAL_FEE';
+  /** Tiền chưa thuế (VND) - user enters directly */
+  tienChuaGtgt: number;
+  /** Phần trăm thuế GTGT (e.g. 8) */
+  gtgtPercent: number;
+  /** Tiền thuế GTGT (computed) */
+  gtgtAmount: number;
+  /** Tiền sau thuế (computed) */
+  tienSauThue: number;
 };
 
 export type CustomPlaceholderInput = {
@@ -738,6 +831,21 @@ export type KaraokeDetailRow = {
 // COMPLETE DRAFT (all form state)
 // =============================================================================
 
+/** Contract template codes for Background exports */
+export type ContractTemplateCode = 'TEMPLATE_1' | 'TEMPLATE_2';
+
+/** Template display names */
+export const CONTRACT_TEMPLATE_DISPLAY_NAMES: Record<ContractTemplateCode, string> = {
+  TEMPLATE_1: 'Mẫu 1',
+  TEMPLATE_2: 'Mẫu 2',
+};
+
+/** Template filenames */
+export const CONTRACT_TEMPLATE_FILENAMES: Record<ContractTemplateCode, string> = {
+  TEMPLATE_1: 'export_template_contract_1.docx',
+  TEMPLATE_2: 'export_template_contract_2.docx',
+};
+
 export type CreateContractDraft = {
   /** Common contract identification (shared) */
   common: CommonContractInfo;
@@ -759,6 +867,8 @@ export type CreateContractDraft = {
   areaBased: AreaBasedUsageInfo;
   /** Royalty calculation lines (multiple modules per contract) */
   calculationLines: RoyaltyCalculationLine[];
+  /** Selected export template code (TEMPLATE_1 or TEMPLATE_2) */
+  contractTemplateCode: ContractTemplateCode;
 };
 
 // =============================================================================
@@ -784,6 +894,12 @@ export type ContractRecordsCandidate = {
   don_vi_chuc_vu: string;
   don_vi_mst: string;
   dia_chi_su_dung: string;
+  usage_same_as_legal: boolean;
+  usage_address_line: string;
+  usage_ward: string;
+  usage_province: string;
+  usage_full_address: string;
+  nguoi_thuc_hien_name: string;
   nguoi_thuc_hien_email: string;
   loai_hinh_karaoke: 'PHONG' | 'BOX';
   tong_so_phong: number;
@@ -797,6 +913,19 @@ export type ContractRecordsCandidate = {
   thue_gtgt_value: number;
   so_tien_value: number;
   renewal_status: CreateContractRenewalStatus;
+  reference_contract_id: number | null;
+  reference_contract_no: string;
+  // Source template fields (Phase TEMPLATE-CREATE-01)
+  source_template_contract_id: number | null;
+  source_template_contract_no: string;
+  contract_terms_note: string;
+  // Phase 2: Music usage areas + simplified royalty
+  music_usage_areas: Array<{ area_name: string; scale_description: string; music_usage_type: string }>;
+  royalty_amount_before_vat: number;
+  vat_rate: number;
+  vat_amount: number;
+  royalty_amount_after_vat: number;
+  royalty_amount_in_words: string;
 };
 
 // =============================================================================
@@ -806,7 +935,7 @@ export type ContractRecordsCandidate = {
 export type CreateContractRenewalStatus =
   | 'NEW'
   | 'PENDING_RENEWAL'
-  | 'RENEWED';
+  | 'FRAME_CONTRACT';
 
 // =============================================================================
 // DB TARGET HINTS

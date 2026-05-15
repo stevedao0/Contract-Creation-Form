@@ -39,10 +39,7 @@ export const STATUS_OPTIONS: {value: StatusFilter;label: string;}[] = [
 
 export const FIELD_CODE_OPTIONS = [
 { value: 'PR', label: 'PR' },
-{ value: 'phong_thu_am', label: 'phong_thu_am' },
-{ value: 'phong_ghi_am', label: 'phong_ghi_am' },
-{ value: 'pta', label: 'pta' },
-{ value: 'restaurant', label: 'restaurant' }];
+{ value: 'MR', label: 'MR' }];
 
 
 export const PAGE_SIZE_OPTIONS = [

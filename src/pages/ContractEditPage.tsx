@@ -41,12 +41,9 @@ import {
 } from '../lib/contractsClient';
 import { formatDate } from '../lib/format';
 import { RouteKey } from '../data/routes';
+import { useAuth } from '../lib/auth';
 
 const TOKEN_KEY = 'vcpmc_new_app_access_token';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const env = (import.meta as any).env as Record<string, string | undefined>;
-const UPDATE_ENABLED = env.VITE_UPDATE_CONTRACT_CLONE_ONLY_ENABLED === 'true';
 
 export function ContractEditPage({
   contractId,
@@ -59,6 +56,8 @@ export function ContractEditPage({
 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission('contracts.edit');
   const [detail, setDetail] = useState<ApiContractDetail | null>(null);
 
   // Editable form state
@@ -205,10 +204,10 @@ export function ContractEditPage({
         description="Chinh sua thong tin hop dong tren DB chinh (port 5432)."
         actions={
           <div className="flex items-center gap-2">
-            {!UPDATE_ENABLED && (
+            {!hasPermission('contracts.edit') && (
               <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-md ring-1 ring-amber-600/20">
                 <LockIcon className="h-3.5 w-3.5" />
-                Read-only — VITE_UPDATE_CONTRACT_CLONE_ONLY_ENABLED=false
+                Read-only — Khong co quyen chinh sua
               </span>
             )}
             <Button variant="secondary" leftIcon={<ArrowLeftIcon className="h-4 w-4" />} onClick={onBack}>
@@ -270,7 +269,7 @@ export function ContractEditPage({
                 { value: 'PHONG', label: 'Phong' },
                 { value: 'BOX', label: 'Box' },
               ]}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
           </div>
         )}
@@ -289,13 +288,13 @@ export function ContractEditPage({
               label="Ten don vi"
               value={formData.don_vi_ten}
               onChange={(e) => handleFieldChange('don_vi_ten', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
             <Input
               label="Ten bang hieu"
               value={formData.ten_bang_hieu}
               onChange={(e) => handleFieldChange('ten_bang_hieu', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
           </FieldGrid>
           <FieldGrid>
@@ -303,13 +302,13 @@ export function ContractEditPage({
               label="Nguoi dai dien"
               value={formData.don_vi_nguoi_dai_dien}
               onChange={(e) => handleFieldChange('don_vi_nguoi_dai_dien', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
             <Input
               label="Chuc vu"
               value={formData.don_vi_chuc_vu}
               onChange={(e) => handleFieldChange('don_vi_chuc_vu', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
           </FieldGrid>
           <FieldGrid cols={3}>
@@ -317,21 +316,21 @@ export function ContractEditPage({
               label="Ma so thue"
               value={formData.don_vi_mst}
               onChange={(e) => handleFieldChange('don_vi_mst', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
             <Input
               label="Dien thoai"
               type="tel"
               value={formData.don_vi_dien_thoai}
               onChange={(e) => handleFieldChange('don_vi_dien_thoai', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
             <Input
               label="Email"
               type="email"
               value={formData.don_vi_email}
               onChange={(e) => handleFieldChange('don_vi_email', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
           </FieldGrid>
           <FieldGrid>
@@ -339,13 +338,13 @@ export function ContractEditPage({
               label="Dia chi don vi"
               value={formData.don_vi_dia_chi}
               onChange={(e) => handleFieldChange('don_vi_dia_chi', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
             <Input
               label="Dia chi su dung"
               value={formData.dia_chi_su_dung}
               onChange={(e) => handleFieldChange('dia_chi_su_dung', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
           </FieldGrid>
         </div>
@@ -378,7 +377,7 @@ export function ContractEditPage({
                       handleFieldChange('tong_so_box', val);
                     }
                   }}
-                  disabled={!UPDATE_ENABLED}
+                  disabled={!canEdit}
                 />
               </div>
               <p className="text-xs text-zinc-500 mb-1">
@@ -404,14 +403,14 @@ export function ContractEditPage({
               type="date"
               value={formData.ngay_bat_dau}
               onChange={(e) => handleFieldChange('ngay_bat_dau', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
             <Input
               label="Ngay ket thuc"
               type="date"
               value={formData.ngay_ket_thuc}
               onChange={(e) => handleFieldChange('ngay_ket_thuc', e.target.value)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
           </FieldGrid>
           <FieldGrid cols={3}>
@@ -420,14 +419,14 @@ export function ContractEditPage({
               type="number"
               value={String(formData.so_tien_chua_gtgt_value ?? 0)}
               onChange={(e) => handleFieldChange('so_tien_chua_gtgt_value', parseInt(e.target.value, 10) || 0)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
             <Input
               label="GTGT (%)"
               type="number"
               value={String(formData.thue_percent ?? 0)}
               onChange={(e) => handleFieldChange('thue_percent', parseFloat(e.target.value) || 0)}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
             <Select
               label="Trang thai tai ky"
@@ -438,7 +437,7 @@ export function ContractEditPage({
                 { value: 'PENDING_RENEWAL', label: 'Cho tai ky (PENDING_RENEWAL)' },
                 { value: 'RENEWED', label: 'Da tai ky (RENEWED)' },
               ]}
-              disabled={!UPDATE_ENABLED}
+              disabled={!canEdit}
             />
           </FieldGrid>
           {formData.so_tien_chua_gtgt_value != null && (
@@ -565,9 +564,9 @@ export function ContractEditPage({
               Luu thay doi
             </h3>
             <p className="text-xs text-zinc-500">
-              {UPDATE_ENABLED
-                ? 'Ghi ket qua len DB clone. Khong xuat chinh thuc, khong tao GCN.'
-                : 'Luu disabled vi VITE_UPDATE_CONTRACT_CLONE_ONLY_ENABLED=false. Bat flag de mo khoa.'}
+              {canEdit
+                ? 'Ghi ket qua len DB chinh. Khong xuat chinh thuc, khong tao GCN.'
+                : 'Ban khong co quyen chinh sua hop dong nay.'}
             </p>
 
             {saveError && (
@@ -611,17 +610,17 @@ export function ContractEditPage({
             )}
           </div>
           <div className="flex flex-col gap-2">
-            {!UPDATE_ENABLED && (
+            {!canEdit && (
               <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-md">
                 <LockIcon className="h-3.5 w-3.5" />
-                Clone-only disabled
+                Khong co quyen chinh sua
               </span>
             )}
             <Button
               variant="primary"
               leftIcon={isSaving ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <SaveIcon className="h-4 w-4" />}
               onClick={handleSave}
-              disabled={!UPDATE_ENABLED || isSaving}
+              disabled={!canEdit || isSaving}
             >
               {isSaving ? 'Dang luu...' : 'Luu thay doi'}
             </Button>
