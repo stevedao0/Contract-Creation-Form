@@ -11,8 +11,14 @@ node_modules
 dist
 dist-ssr
 *.local
+_local-real-data/
+*.raw.json
+*.raw.ndjson
 
 # Editor directories and files
+_local-real-data/
+*.raw.json
+*.raw.ndjson
 .vscode/*
 !.vscode/extensions.json
 .idea
