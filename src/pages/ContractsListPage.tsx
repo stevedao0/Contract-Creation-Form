@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   FilePlusIcon,
-  FileSpreadsheetIcon,
+  
   RefreshCwIcon,
   EyeIcon,
   PencilIcon,
@@ -32,7 +32,7 @@ import { BulkActionBar } from '../components/app-ui/BulkActionBar';
 import { Pagination } from '../components/app-ui/Pagination';
 import { TableSkeleton } from '../components/app-ui/TableSkeleton';
 import { EmptyState } from '../components/app-ui/EmptyState';
-import { SummaryHero } from '../components/app-ui/SummaryHero';
+
 import { Modal } from '../components/app-ui/Modal';
 import { RouteKey } from '../data/routes';
 import {
@@ -45,23 +45,47 @@ import {
   LINH_VUC_OPTIONS,
   STATUS_OPTIONS,
   FIELD_CODE_OPTIONS,
-  BACKGROUND_OPS_SUMMARY,
   StatusFilter } from
 '../data/contractOptions';
 import { formatCurrency, formatDate, formatNumber } from '../lib/format';
 import {
   ApiContractItem,
   getContracts,
+  getContractsSummary,
   exportDocxPreview,
   getCertificateContextDryRun,
   deleteContractCloneOnly,
   type ExportPreviewResult,
   type CertificateContextResult,
   type DeleteContractCloneOnlyResult,
+  type ContractsSummaryStats,
 } from '../lib/contractsClient';
 import { useAuth } from '../lib/auth';
+import { TOKEN_KEY } from '../lib/authClient';
 
-const TOKEN_KEY = 'vcpmc_new_app_access_token';
+/**
+ * Compact display formatter for contract numbers.
+ * Visual-only — does not mutate or truncate the original data.
+ *
+ * Example: "0824/2026/HĐQTGAN-PN/PR"
+ *   primary → "0824/2026"
+ *   suffix  → "PN/PR"
+ */
+function formatContractNoDisplay(contractNo: string): {
+  full: string;
+  primary: string;
+  suffix: string;
+} {
+  const value = String(contractNo || '').trim();
+  const parts = value.split('/');
+  // Primary = first two segments (e.g. 0824/2026)
+  const primary = parts.length >= 2 ? `${parts[0]}/${parts[1]}` : value;
+  // Suffix = everything after the year (e.g. HĐQTGAN-PN/PR → PN/PR)
+  const rawTail = parts.length >= 3 ? parts.slice(2).join('/') : '';
+  // Strip the domain prefix tag if present, show just the type+region suffix
+  const suffix = rawTail.replace(/^(HĐ[A-Z]+-?)/i, '');
+  return { full: value, primary, suffix };
+}
 
 function toContractRecord(item: ApiContractItem): ContractRecord {
   const contractYearFromNo = (() => {
@@ -89,9 +113,17 @@ function toContractRecord(item: ApiContractItem): ContractRecord {
     is_renewable: item.is_renewable ?? false,
     loai_hinh_karaoke: item.loai_hinh_karaoke || null,
     tong_so_phong: item.tong_so_phong ?? null,
-    tong_so_box: item.tong_so_box ?? null
+    tong_so_box: item.tong_so_box ?? null,
+    // Phase 2 simplified royalty fields (canonical source)
+    royalty_amount_before_vat: item.royalty_amount_before_vat ?? null,
+    vat_rate: item.vat_rate ?? null,
+    vat_amount: item.vat_amount ?? null,
+    royalty_amount_after_vat: item.royalty_amount_after_vat ?? null,
+    // Phase 2: Music usage areas
+    music_usage_areas: item.music_usage_areas ?? null,
   };
 }
+
 export function ContractsListPage({
   onNavigate,
   onOpenDetail,
@@ -106,7 +138,7 @@ export function ContractsListPage({
 }) {
   // Auth
   const { currentUser, hasPermission } = useAuth();
-  const canEdit = hasPermission('contracts.edit');
+  const canEdit = hasPermission('contracts.update');
   const canDelete = hasPermission('contracts.delete');
 
   // Filter state
@@ -123,10 +155,21 @@ export function ContractsListPage({
   const [contracts, setContracts] = useState<ContractRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  // KPI stats from real API (SummaryHero + MetricStrip)
+  const [summaryStats, setSummaryStats] = useState<ContractsSummaryStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
   // Pagination
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
   const [reloadTick, setReloadTick] = useState(0);
+  // Density toggle (UI only, no API impact)
+  const [density, setDensity] = useState<'compact' | 'mid' | 'detail'>('compact');
+  const cellPad = density === 'compact' ? 'px-3 py-2' : density === 'mid' ? 'px-4 py-2.5' : 'px-4 py-3.5';
+  const firstCellPad = density === 'compact' ? 'pl-4 pr-2 py-2' : density === 'mid' ? 'pl-5 pr-2 py-2.5' : 'pl-5 pr-2 py-3.5';
+  const unitClamp = density === 'compact' ? 'line-clamp-2' : density === 'mid' ? 'line-clamp-2' : 'line-clamp-3';
+  const signClamp = density === 'compact' ? 'line-clamp-1' : density === 'mid' ? 'line-clamp-2' : 'line-clamp-2';
+  const addrClamp = density === 'compact' ? 'line-clamp-2' : density === 'mid' ? 'line-clamp-3' : 'line-clamp-4';
+  const areasShown = density === 'compact' ? 1 : 2;
 
   // Action modal state (Xuất Word / Xem dữ liệu GCN / Xóa)
   const [actionModal, setActionModal] = useState<{
@@ -407,11 +450,36 @@ export function ContractsListPage({
       cancelled = true;
     };
   }, [keyword, year, linhVuc, fieldCode, status, page, pageSize, reloadTick]);
+
+  // Fetch KPI summary stats from real API
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSummaryStats() {
+      setStatsLoading(true);
+      try {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+          if (!cancelled) setStatsLoading(false);
+          return;
+        }
+        const stats = await getContractsSummary(token);
+        if (!cancelled) setSummaryStats(stats);
+      } catch {
+        if (!cancelled) setSummaryStats(null);
+      } finally {
+        if (!cancelled) setStatsLoading(false);
+      }
+    }
+    loadSummaryStats();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadTick]);
   return (
     <Page>
       <PageHeader
         breadcrumb="/bg/contracts"
-        title="Danh sách hợp đồng"
+        title="Hợp đồng"
         description="Quản lý hợp đồng Background/Karaoke đã ký, bản nháp và trạng thái hiệu lực."
         actions={
         <>
@@ -419,112 +487,68 @@ export function ContractsListPage({
             variant="secondary"
             leftIcon={<RefreshCwIcon className="h-4 w-4" />}
             onClick={triggerRefresh}>
-            
               Làm mới
-            </Button>
-            <Button
-            variant="secondary"
-            leftIcon={<FileSpreadsheetIcon className="h-4 w-4" />}
-            onClick={() => {}}
-            title="Chua trien khai xuat Excel"
-            disabled>
-
-              Xuất Excel
             </Button>
             <Button
             variant="primary"
             leftIcon={<FilePlusIcon className="h-4 w-4" />}
             onClick={() => {
-              // Pass the first (newest) contract to pre-populate the create form
               if (onCreateNew && contracts.length > 0) {
                 onCreateNew(contracts[0]);
               }
               onNavigate('contracts.create');
             }}>
-            
-              Tạo hợp đồng mới
+              Tạo hợp đồng
             </Button>
           </>
         } />
-      
-
-      <SummaryHero
-        label="Operations Summary · Background"
-        title="Tình trạng vận hành toàn bộ workspace"
-        description="Số liệu tổng hợp hợp đồng Background đến thời điểm hiện tại."
-        stats={[
-        {
-          label: 'Tổng hợp đồng BG',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.totalBackground),
-          tone: 'indigo'
-        },
-        {
-          label: 'Còn hiệu lực',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.active),
-          tone: 'emerald'
-        },
-        {
-          label: 'Sắp hết 30 ngày',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.expiringIn30Days),
-          tone: 'amber'
-        },
-        {
-          label: 'Hết hạn',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.expired),
-          tone: 'rose'
-        },
-        {
-          label: 'Chờ tái ký',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.pendingRenewal),
-          tone: 'violet'
-        }]
-        } />
-      
 
       <MetricStrip
         items={[
         {
           label: 'Tổng hợp đồng',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.totalBackground),
+          value: statsLoading ? '—' : formatNumber(summaryStats?.totalContracts ?? 0),
           tone: 'indigo',
           icon: <FileTextIcon className="h-4 w-4" />,
           hint: 'Tất cả thời kỳ'
         },
         {
-          label: 'Hợp đồng 2026',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.contracts2026),
-          tone: 'violet',
-          icon: <CalendarRangeIcon className="h-4 w-4" />,
-          delta: {
-            value: 'Năm hiện tại',
-            tone: 'flat'
-          }
-        },
-        {
-          label: 'Còn hiệu lực',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.active),
+          label: 'Đang hiệu lực',
+          value: statsLoading ? '—' : formatNumber(summaryStats?.active ?? 0),
           tone: 'emerald',
           icon: <CheckCircle2Icon className="h-4 w-4" />,
-          hint: '3,6% tổng số'
         },
         {
-          label: 'Sắp hết 30 ngày',
-          value: formatNumber(BACKGROUND_OPS_SUMMARY.expiringIn30Days),
+          label: 'Sắp hết hạn',
+          value: statsLoading ? '—' : formatNumber(summaryStats?.expiringIn30Days ?? 0),
           tone: 'amber',
           icon: <AlertTriangleIcon className="h-4 w-4" />,
-          hint: 'Cần xử lý sớm'
+          hint: '≤ 30 ngày'
+        },
+        {
+          label: 'Đã hết hạn',
+          value: statsLoading ? '—' : formatNumber(summaryStats?.expired ?? 0),
+          tone: 'rose',
+          icon: <XCircleIcon className="h-4 w-4" />,
+        },
+        {
+          label: 'Hợp đồng 2026',
+          value: statsLoading ? '—' : formatNumber(summaryStats?.contracts2026 ?? 0),
+          tone: 'violet',
+          icon: <CalendarRangeIcon className="h-4 w-4" />,
         },
         {
           label: 'Doanh thu 2026',
-          value: '1,075 tỷ',
+          value: statsLoading
+            ? '—'
+            : (summaryStats?.revenue2026 ?? 0) > 0
+              ? `${(summaryStats!.revenue2026 / 1_000_000_000).toFixed(2)} tỷ`
+              : '—',
           tone: 'cyan',
           icon: <WalletIcon className="h-4 w-4" />,
-          delta: {
-            value: 'Lũy kế năm',
-            tone: 'flat'
-          }
         }]
         } />
+
       
 
       <FilterBar
@@ -603,26 +627,21 @@ export function ContractsListPage({
         </FilterField>
       </FilterBar>
 
-      <ContentCard padded={false}>
-        <BulkActionBar
-          count={selected.size}
-          onClear={() => setSelected(new Set())}
-          actions={[
-          {
-            label: 'Xuất Excel',
-            icon: <FileSpreadsheetIcon className="h-3.5 w-3.5" />,
-            onClick: () => {},
-            disabled: true,
-            disabledReason: 'Chưa triển khai xuất Excel',
-          },
-          {
-            label: 'Tạo GCN hàng loạt',
-            icon: <AwardIcon className="h-3.5 w-3.5" />,
-            onClick: () => onNavigate('contracts.print'),
-            disabled: selected.size === 0,
-            disabledReason: selected.size === 0 ? 'Chọn ít nhất 1 hợp đồng Karaoke' : undefined,
-          }]
-          } />
+      <ContentCard padded={false} className="ds-page-table-shell">
+        {selected.size > 0 && (
+          <BulkActionBar
+            count={selected.size}
+            onClear={() => setSelected(new Set())}
+            actions={[
+            {
+              label: 'Tạo GCN hàng loạt',
+              icon: <AwardIcon className="h-3.5 w-3.5" />,
+              onClick: () => onNavigate('contracts.print'),
+              disabled: selected.size === 0,
+              disabledReason: selected.size === 0 ? 'Chọn ít nhất 1 hợp đồng Karaoke' : undefined,
+            }]
+            } />
+        )}
         
 
         {loading ?
@@ -653,30 +672,52 @@ export function ContractsListPage({
           icon={<XCircleIcon className="h-5 w-5" />} /> :
 
 
-        <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gradient-to-b from-indigo-50/40 via-zinc-50 to-zinc-50/30 border-b border-zinc-200">
-                  <th className="w-10 pl-5 pr-2 py-3.5">
+        <>
+          <div className="ds-page-table-toolbar">
+            <span className="ds-page-table-toolbar-summary">
+              Hiển thị <strong>{formatNumber(totalRows)}</strong> dòng · trang <strong>{page}/{Math.max(totalPages, 1)}</strong>
+            </span>
+            <div className="ml-auto inline-flex rounded-md ring-1 ring-zinc-200 bg-white overflow-hidden text-[12px]">
+              {(['compact','mid','detail'] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDensity(d)}
+                  className={`px-2.5 py-1 transition-colors ${density === d ? 'bg-amber-100 text-amber-900 font-semibold' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                  aria-pressed={density === d}
+                >
+                  {d === 'compact' ? 'Gọn' : d === 'mid' ? 'Vừa' : 'Chi tiết'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <table className="ds-page-table shrink-0">
+              <thead className="ds-page-table-header block">
+                <tr className="premium-table-head ds-page-table-head-row flex">
+                  <th className={`ds-page-table-head-cell w-10 ${firstCellPad} shrink-0`}>
                     <Checkbox
                     checked={allSelected}
                     indeterminate={someSelected}
                     onChange={toggleAll}
                     ariaLabel="Chọn tất cả" />
-                  
                   </th>
-                  <Th>Số hợp đồng</Th>
-                  <Th>Đơn vị / Bảng hiệu</Th>
-                  <Th>Địa chỉ sử dụng</Th>
-                  <Th>Lĩnh vực</Th>
-                  <Th>Ngày lập</Th>
-                  <Th>Hiệu lực</Th>
-                  <Th align="right">Giá trị</Th>
-                  <Th>Trạng thái</Th>
-                  <th className="w-10 pr-3" />
+                  <Th> Số hợp đồng</Th>
+                  <Th> Đơn vị / Bảng hiệu</Th>
+                  <Th> Địa chỉ sử dụng</Th>
+                  <Th> Lĩnh vực</Th>
+                  <Th> Ngày lập</Th>
+                  <Th> Hiệu lực</Th>
+                  <Th align="right"> Giá trị chưa GTGT</Th>
+                  <Th> Trạng thái</Th>
+                  <th className="ds-page-table-head-cell w-10 pr-3 shrink-0" />
                 </tr>
               </thead>
-              <tbody>
+            </table>
+            <div className="ds-page-table-scroll-y">
+              <table className={`ds-page-table ${density === 'compact' ? 'ds-page-table-density-compact' : density === 'mid' ? 'ds-page-table-density-comfortable' : 'ds-page-table-density-detailed'}`}>
+                <tbody className="ds-page-table-body">
                 {contracts.map((r) => {
                 const isSelected = selected.has(r.id);
                 const exp = getExpiryStatus(r.ngay_ket_thuc);
@@ -689,17 +730,23 @@ export function ContractsListPage({
                 renewalKey === 'RENEWED' ?
                 'success' :
                 'neutral';
+                const areas = r.music_usage_areas ?? [];
+                const areaTooltip = areas.length > 0
+                  ? areas.map((a, i) =>
+                      `${i + 1}. ${a.area_name || '(không có tên)'}${a.scale_description ? ` — ${a.scale_description}` : ''}${a.music_usage_type ? ` · ${a.music_usage_type}` : ''}`
+                    ).join('\n')
+                  : '';
                 return (
                   <tr
                     key={r.id}
                     onClick={() => onOpenDetail(r.id)}
-                    className={`group/row relative border-b border-zinc-100 last:border-0 transition-all cursor-pointer ${isSelected ? 'bg-indigo-50/60 hover:bg-indigo-50/80' : 'hover:bg-indigo-50/40 hover:shadow-[inset_0_1px_0_rgba(99,102,241,0.06),inset_0_-1px_0_rgba(99,102,241,0.06)]'}`}>
+                    className={`ds-page-table-row group/row relative cursor-pointer ${isSelected ? 'ds-page-table-row-selected row-selected-premium' : 'row-hover-premium'}`}>
                     
                       {/* Selection cell + left bar */}
-                      <td className="relative pl-5 pr-2 py-3.5 align-top">
+                      <td className={`ds-page-table-cell relative ${firstCellPad} align-top`}>
                         <span
                         aria-hidden
-                        className={`absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-indigo-400 to-violet-400 transition-opacity ${isSelected ? 'opacity-100 shadow-[0_0_8px_rgba(129,140,248,0.5)]' : 'opacity-0 group-hover/row:opacity-90'}`} />
+                        className={`absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-[#c89968] via-[#9c6d3e] to-[#0d7a5f] transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-90'}`} />
                       
                         <Checkbox
                         checked={isSelected}
@@ -708,131 +755,182 @@ export function ContractsListPage({
                       
                       </td>
 
-                      {/* Contract no — link style */}
-                      <td className="px-4 py-3.5 align-top whitespace-nowrap">
+                      {/* Contract no — compact link style */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top`}>
                         <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           onOpenDetail(r.id);
                         }}
-                        className="font-mono text-[13px] font-semibold text-indigo-700 hover:text-indigo-900 group-hover/row:underline underline-offset-[3px] decoration-indigo-300/70 decoration-1 transition-colors tracking-tight">
-                        
-                          {r.contract_no}
+                        title={r.contract_no}
+                        className="contract-no-chip block text-left">
+                          {(() => {
+                            const { primary, suffix, full } = formatContractNoDisplay(r.contract_no);
+                            return (
+                              <>
+                                <span className="block text-[12.5px] font-semibold tabular-nums leading-snug">
+                                  {primary}
+                                </span>
+                                {suffix && suffix !== full && (
+                                  <span className="contract-no-suffix mt-0.5">
+                                    {suffix}
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                         </button>
                       </td>
 
                       {/* Đơn vị + bảng hiệu */}
-                      <td className="px-4 py-3.5 align-top max-w-[280px]">
+                      <td className={`ds-page-table-cell ${cellPad} align-top max-w-[280px]`}>
                         <p
-                        className="text-[14px] font-semibold text-zinc-900 leading-snug line-clamp-2"
+                        className={`text-[13px] font-semibold text-zinc-900 leading-snug whitespace-normal break-words ${unitClamp}`}
                         title={r.don_vi_ten}>
                         
                           {r.don_vi_ten}
                         </p>
-                        {r.ten_bang_hieu &&
+                        {r.ten_bang_hieu && (
                       <p
-                        className="mt-0.5 text-[12px] text-zinc-500 truncate"
+                        className={`mt-0.5 text-[12px] text-zinc-500 whitespace-normal break-words ${signClamp}`}
                         title={r.ten_bang_hieu}>
                         
                             {r.ten_bang_hieu}
                           </p>
-                      }
+                      )}
                       </td>
 
                       {/* Địa chỉ */}
-                      <td className="px-4 py-3.5 align-top max-w-[260px]">
+                      <td className={`ds-page-table-cell ${cellPad} align-top max-w-[260px]`}>
                         <p
-                        className="text-[12.5px] text-zinc-600 leading-snug line-clamp-2"
+                        className={`text-[12.5px] text-zinc-600 leading-snug whitespace-normal break-words ${addrClamp}`}
                         title={r.dia_chi_su_dung}>
                         
                           {r.dia_chi_su_dung}
                         </p>
                       </td>
 
-                      {/* Lĩnh vực */}
-                      <td className="px-4 py-3.5 align-top">
+                      {/* Lĩnh vực — summarized */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top max-w-[260px]`}>
                         <div className="flex flex-col gap-1">
-                          <span className="text-zinc-700 text-[13px] font-medium">
+                          <span className="text-zinc-700 text-[13px] font-medium whitespace-normal break-words">
                             {r.linh_vuc_hien_thi}
                           </span>
-                          {r.loai_hinh_karaoke &&
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-medium bg-zinc-100 text-zinc-700 ring-1 ring-inset ring-zinc-900/5 self-start">
-                              {r.loai_hinh_karaoke}
-                              {r.tong_so_phong != null &&
-                          <>
-                                  <span className="text-zinc-400">·</span>
-                                  <span className="tabular-nums font-semibold">
-                                    {r.tong_so_phong} phòng
+                          {areas.length > 0 ? (
+                            <div className="flex flex-wrap items-start gap-1">
+                              {areas.slice(0, areasShown).map((area, idx) => {
+                                const label =
+                                  area.area_name ||
+                                  area.scale_description ||
+                                  area.music_usage_type ||
+                                  '—';
+                                return (
+                                  <span
+                                    key={idx}
+                                    className="usage-area-chip"
+                                    title={`${area.area_name || ''}${area.scale_description ? ' — ' + area.scale_description : ''}${area.music_usage_type ? ' · ' + area.music_usage_type : ''}`}
+                                  >
+                                    {label}
                                   </span>
-                                </>
-                          }
-                            </span>
-                        }
+                                );
+                              })}
+                              {areas.length > areasShown && (
+                                <span
+                                  className="usage-extra-chip"
+                                  title={areaTooltip}
+                                >
+                                  +{areas.length - areasShown}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onOpenDetail(r.id); }}
+                                className="usage-detail-link"
+                              >
+                                Chi tiết
+                              </button>
+                            </div>
+                          ) : (
+                            r.loai_hinh_karaoke && (
+                              <span className="usage-area-chip">
+                                {r.loai_hinh_karaoke}
+                                {r.tong_so_phong != null && (
+                                  <>
+                                    <span className="text-fg-subtle mx-0.5">·</span>
+                                    <span className="font-semibold tabular-nums">
+                                      {r.tong_so_phong} phòng
+                                    </span>
+                                  </>
+                                )}
+                              </span>
+                            )
+                          )}
                         </div>
                       </td>
 
                       {/* Ngày lập */}
-                      <td className="px-4 py-3.5 align-top text-zinc-700 tabular-nums whitespace-nowrap text-[13px]">
+                      <td className={`ds-page-table-cell ${cellPad} align-top text-zinc-700 tabular-nums whitespace-nowrap text-[13px]`}>
                         {formatDate(r.ngay_lap_hop_dong)}
                       </td>
 
                       {/* Hiệu lực */}
-                      <td className="px-4 py-3.5 align-top whitespace-nowrap">
+                      <td className={`ds-page-table-cell ${cellPad} align-top whitespace-nowrap`}>
                         <p className="text-zinc-700 tabular-nums text-[13px]">
                           {formatDate(r.ngay_bat_dau)}
                         </p>
                         <p className="text-zinc-500 tabular-nums text-[12px]">
                           → {formatDate(r.ngay_ket_thuc)}
                         </p>
-                        {exp.status === 'expiring' &&
-                      <span className="inline-flex mt-1">
-                            <StatusBadge tone="warning" dot>
-                              Sắp hết · {exp.daysLeft}d
-                            </StatusBadge>
-                          </span>
-                      }
                       </td>
 
-                      {/* Giá trị */}
-                      <td className="px-4 py-3.5 align-top text-right tabular-nums whitespace-nowrap">
-                        {r.so_tien_value == null ?
+                      {/* Giá trị chưa GTGT */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top text-right tabular-nums whitespace-nowrap`}>
+                        {r.royalty_amount_before_vat == null ?
                       <span className="text-zinc-400 italic text-xs">
                             Chưa có
                           </span> :
-                      r.so_tien_value === 0 ?
+                      r.royalty_amount_before_vat === 0 ?
                       <span className="text-zinc-500 text-xs">
                             Chưa tính
                           </span> :
 
-                      <span className="font-semibold text-zinc-900 text-[13px]">
-                            {formatCurrency(r.so_tien_value)}
+                      <span className="money-strong tabular-nums text-[13.5px]">
+                            {formatCurrency(r.royalty_amount_before_vat)}
                           </span>
                       }
                       </td>
 
-                      {/* Trạng thái — 2 badges stacked */}
-                      <td className="px-4 py-3.5 align-top">
-                        <div className="flex flex-col gap-1 items-start">
-                          {exp.status === 'active' &&
-                        <StatusBadge tone="success" dot>
-                              Còn hiệu lực
+                      {/* Trạng thái — compact: single primary pill */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top`}>
+                        {density === 'compact' ? (
+                          <div className="flex items-center gap-1 flex-wrap" title={`${RENEWAL_LABEL[renewalKey]}${exp.status === 'expiring' ? ` · còn ${exp.daysLeft} ngày` : ''}`}>
+                            {exp.status === 'active' && (
+                              <StatusBadge tone="success" dot compact>Hiệu lực</StatusBadge>
+                            )}
+                            {exp.status === 'expiring' && (
+                              <StatusBadge tone="warning" dot compact>Sắp hết · {exp.daysLeft}d</StatusBadge>
+                            )}
+                            {exp.status === 'expired' && (
+                              <StatusBadge tone="danger" dot compact>Hết hạn</StatusBadge>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1 items-start">
+                            {exp.status === 'active' && (
+                              <StatusBadge tone="success" dot>Còn hiệu lực</StatusBadge>
+                            )}
+                            {exp.status === 'expiring' && (
+                              <StatusBadge tone="warning" dot>Sắp hết · {exp.daysLeft}d</StatusBadge>
+                            )}
+                            {exp.status === 'expired' && (
+                              <StatusBadge tone="danger" dot>Hết hạn</StatusBadge>
+                            )}
+                            <StatusBadge tone={renewalTone}>
+                              {RENEWAL_LABEL[renewalKey]}
                             </StatusBadge>
-                        }
-                          {exp.status === 'expiring' &&
-                        <StatusBadge tone="warning" dot>
-                              Sắp hết hạn
-                            </StatusBadge>
-                        }
-                          {exp.status === 'expired' &&
-                        <StatusBadge tone="danger" dot>
-                              Hết hạn
-                            </StatusBadge>
-                        }
-                          <StatusBadge tone={renewalTone}>
-                            {RENEWAL_LABEL[renewalKey]}
-                          </StatusBadge>
-                        </div>
+                          </div>
+                        )}
                       </td>
 
                       {/* Actions */}
@@ -894,7 +992,9 @@ export function ContractsListPage({
               })}
               </tbody>
             </table>
+            </div>
           </div>
+        </>
         }
 
         {!loading && contracts.length > 0 &&
@@ -939,7 +1039,7 @@ export function ContractsListPage({
             {/* Loading */}
             {actionModal.loading && (
               <div className="flex items-center gap-3 py-8 justify-center">
-                <LoaderIcon className="h-5 w-5 animate-spin text-indigo-600" />
+                <LoaderIcon className="h-5 w-5 animate-spin text-amber-700" />
                 <span className="text-sm text-zinc-600">Đang xử lý...</span>
               </div>
             )}
@@ -1229,7 +1329,7 @@ export function ContractsListPage({
                       </div>
                       <div>
                         <span className="text-zinc-500">admin_delete_any:</span>{' '}
-                        <span className={actionModal.deleteResult.admin_delete_any_enabled ? 'text-violet-600 font-semibold' : 'text-zinc-500'}>
+                        <span className={actionModal.deleteResult.admin_delete_any_enabled ? 'text-amber-700 font-semibold' : 'text-zinc-500'}>
                           {actionModal.deleteResult.admin_delete_any_enabled ? 'TRUE' : 'FALSE'}
                         </span>
                       </div>
@@ -1246,8 +1346,13 @@ export function ContractsListPage({
                 )}
                 {!actionModal.deleteResult.ok && (
                   <div className="rounded-lg bg-rose-50 p-3 text-xs text-rose-700">
-                    <p className="font-semibold">Không thể xóa record này.</p>
+                    <p className="font-semibold">Không thể xóa hợp đồng này.</p>
                     <p className="mt-1">{actionModal.deleteResult.message}</p>
+                    {actionModal.deleteResult.mode === 'main_db_disabled' && (
+                      <p className="mt-1 text-rose-600">
+                        Liên hệ admin để bật chức năng xóa trên DATABASE chính.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1269,15 +1374,10 @@ export function ContractsListPage({
 function Th({
   children,
   align = 'left'
-
-
-
 }: {children: React.ReactNode;align?: 'left' | 'right' | 'center';}) {
   return (
     <th
-      className={`px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-700 ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'}`}>
-      
+      className={`px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-700 shrink-0 text-left ${align === 'right' ? 'text-right pr-6' : align === 'center' ? 'text-center' : ''}`}>
       {children}
     </th>);
-
 }

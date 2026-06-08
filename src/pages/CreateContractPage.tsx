@@ -25,6 +25,7 @@ import type { RoyaltyTableData } from '../components/contract/WordLikeRoyaltyTab
 import { MusicUsageAreaSection } from '../components/contract/MusicUsageAreaSection';
 import { SimpleRoyaltyInput } from '../components/contract/SimpleRoyaltyInput';
 import { ContractTemplateSearch } from '../components/contract/ContractTemplateSearch';
+import { useEmployeeOptions } from '../hooks/useEmployeeOptions';
 import type { PrefillSourceResponse } from '../lib/contractsClient';
 import {
   AREA_USAGE_KIND_OPTIONS,
@@ -32,8 +33,6 @@ import {
   CALC_MODULE_NOT_IMPLEMENTED_PLACEHOLDER,
   CALCULATION_MODULE_OPTIONS,
   CREATE_CONTRACT_AREA_OPTIONS,
-  CREATE_CONTRACT_ASSIGNEE_EMAILS,
-  CREATE_CONTRACT_ASSIGNEE_OPTIONS,
   CREATE_CONTRACT_BACKGROUND_DOMAIN_OPTIONS,
   CREATE_CONTRACT_KARAOKE_USAGE_OPTIONS,
   CREATE_CONTRACT_PRICING_RENDER_OPTIONS,
@@ -215,6 +214,7 @@ export function CreateContractPage({
   initialDraftFromContract?: import('../data/contractRecords').ContractRecord;
 }) {
   const { currentUser } = useAuth();
+  const { employees, loading: employeesLoading } = useEmployeeOptions();
   const today = new Date().toISOString().split('T')[0];
   const [draft, setDraft] = useState<CreateContractDraft>(() => {
     const baseDraft = initialDraftFromContract
@@ -222,9 +222,13 @@ export function CreateContractPage({
       : createDefaultContractDraft();
     // Auto-fill assignee from logged-in user
     if (currentUser) {
+      const userEmail = currentUser.email || '';
+      const matchingEmployee = employees.find(
+        (e) => e.email?.toLowerCase() === userEmail.toLowerCase() || e.name?.toLowerCase() === currentUser.name?.toLowerCase()
+      );
       baseDraft.assignee = {
-        name: currentUser.full_name || currentUser.email || '',
-        email: currentUser.email || '',
+        name: matchingEmployee?.name || currentUser.name || '',
+        email: matchingEmployee?.email || userEmail,
       };
     }
     // Default signedDate to today if not set
@@ -355,8 +359,6 @@ export function CreateContractPage({
   };
 
   const handlePrefillData = (prefillData: PrefillSourceResponse) => {
-    console.log('[CreateContract] handlePrefillData called with:', prefillData);
-
     // Extract domain code from string
     const domainCodeMap: Record<string, import('../lib/contractCreateTypes').BackgroundDomainCode> = {
       'KARAOKE': 'KARAOKE',
@@ -428,7 +430,6 @@ export function CreateContractPage({
     if (!legalFullAddress && usageFullAddress) {
       legalFullAddress = usageFullAddress;
       legalAddressLine = usageAddressLine;
-      console.log('[template-search] WARNING: No real legal address found; using usage_full_address fallback');
     }
 
     // Determine usage_same_as_legal
@@ -476,14 +477,6 @@ export function CreateContractPage({
 
     // Check if it's a karaoke domain
     const isKaraokeDomain = ['KARAOKE', 'PHONG_THU_AM'].includes(prefillData.domain_code || '');
-
-    // Log normalized data
-    console.log('[template-search] Prefill normalized:', {
-      legal_full_address: legalFullAddress,
-      usage_full_address: usageFullAddress,
-      music_usage_areas_count: musicUsageAreas.length,
-      generated_from_room_sections: generatedFromRoomSections,
-    });
 
     updateDraft((current) => {
       // Track old template ID for logging
@@ -589,33 +582,11 @@ export function CreateContractPage({
         },
         assignee: {
           ...baseDraft.assignee,
-          name: current.assignee.name || baseDraft.assignee.name,
           email: current.assignee.email || baseDraft.assignee.email,
         },
       };
 
-      // Draft shape validation logging
-      console.log('[CreateContract] draft shape after prefill:', {
-        template_contract_id: prefillData.contract_id,
-        template_contract_no: prefillData.contract_no,
-        validation: {
-          calculationLines_isArray: Array.isArray(newDraft.calculationLines),
-          calculationLines_length: newDraft.calculationLines?.length,
-          musicUsageAreas_isArray: Array.isArray(newDraft.areaBased.musicUsageAreas),
-          musicUsageAreas_length: newDraft.areaBased.musicUsageAreas?.length,
-          roomSections_isArray: Array.isArray(newDraft.karaoke.roomSections),
-          roomSections_length: newDraft.karaoke.roomSections?.length,
-          locations_isArray: Array.isArray(newDraft.areaBased.locations),
-          locations_length: newDraft.areaBased.locations?.length,
-        },
-        draft_legal_name: newDraft.customer.legalName,
-        draft_brand_name: newDraft.customer.brandName,
-        draft_legal_full_address: newDraft.customer.legalFullAddress,
-        draft_usage_full_address: newDraft.location.usageFullAddress,
-        draft_music_usage_areas_count: newDraft.areaBased.musicUsageAreas?.length ?? 0,
-        old_template_contract_id: oldTemplateId,
-        cleared_previous_template_data: true,
-      });
+      updateDraft(() => newDraft);
 
       return newDraft;
     });
@@ -1216,26 +1187,12 @@ export function CreateContractPage({
     setCreateError(null);
     setCreateResult(null);
 
-    console.log("[create-contract] submitting", {
-      contract_no: candidatePayload.contract_no,
-      contract_year: candidatePayload.contract_year,
-      region_code: candidatePayload.region_code,
-      field_code: candidatePayload.field_code,
-    });
-
     try {
       const result = await createAndExportDocx(token, {
         draft,
         client_preflight: candidatePayload,
       });
       setCreateResult(result);
-      console.log("[create-contract] result", {
-        ok: result.ok,
-        mode: result.mode,
-        error_code: result.error_code,
-        contract_no: result.contract_no,
-        message: result.message,
-      });
       if (!result.ok) {
         // Build detailed error message
         let errorMsg = result.message || 'Tạo hợp đồng thất bại.';
@@ -1298,7 +1255,6 @@ export function CreateContractPage({
   // =========================================================================
 
   const handleSaveDraft = () => {
-    console.log('Local create draft only:', draft);
     setIsDirty(false);
   };
 
@@ -1345,15 +1301,11 @@ export function CreateContractPage({
           {/* Shared across all Background domains */}
           {/* =================================================================== */}
           <FormSection
-            title="1. Thông tin chung"
-            description="Thông tin hợp đồng, đối tác, địa điểm - chung cho tất cả lĩnh vực Background"
+            title="1. Định danh hợp đồng"
+            description="Số hợp đồng, ngày lập, năm và mã định danh"
           >
-            <div className="space-y-6">
-              {/* 1a. Định danh hợp đồng */}
+            <div>
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500 mb-3">
-                  1a. Định danh hợp đồng
-                </h4>
                 <div className="space-y-4">
                   <ContractNumberPreview contractNo={contractNoPreview} />
                   {/* Availability check */}
@@ -1493,12 +1445,15 @@ export function CreateContractPage({
                   </FieldGrid>
                 </div>
               </div>
+            </div>
+          </FormSection>
 
-              {/* 1b. Thông tin đối tác */}
+          <FormSection
+            title="2. Đối tác & Địa chỉ"
+            description="Pháp nhân, người đại diện và địa chỉ pháp lý / sử dụng âm nhạc"
+          >
+            <div className="space-y-6">
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500 mb-3">
-                  1b. Thông tin đối tác
-                </h4>
                 <div className="space-y-4">
                   <FieldGrid>
                     <Input
@@ -1830,11 +1785,17 @@ export function CreateContractPage({
                   />
                 </div>
               </div>
+            </div>
+          </FormSection>
 
-              {/* 1d. Thời hạn hợp đồng */}
+          <FormSection
+            title="3. Thời hạn & người thực hiện"
+            description="Hiệu lực hợp đồng và người chịu trách nhiệm"
+          >
+            <div className="space-y-6">
               <div>
                 <h4 className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500 mb-3">
-                  1d. Thời hạn hợp đồng
+                  Thời hạn hợp đồng
                 </h4>
                 <div className="space-y-4">
                   <FieldGrid cols={2}>
@@ -1923,84 +1884,57 @@ export function CreateContractPage({
                 </div>
               </div>
 
-              {/* 1e. Người thực hiện */}
+              {/* Người thực hiện */}
               <div>
                 <h4 className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500 mb-3">
-                  1e. Người thực hiện
+                  Người thực hiện
                 </h4>
-                <FieldGrid>
+                {employeesLoading ? (
+                  <div className="h-10 bg-zinc-100 rounded-lg animate-pulse" />
+                ) : employees.length > 0 ? (
                   <Select
                     label="Người thực hiện"
-                    value={draft.assignee.name}
+                    value={draft.assignee.email}
                     onChange={(value) =>
                       updateDraft((current) => ({
                         ...current,
                         assignee: {
-                          name: value,
-                          email: CREATE_CONTRACT_ASSIGNEE_EMAILS[value] || '',
+                          email: value,
                         },
                       }))
                     }
-                    options={CREATE_CONTRACT_ASSIGNEE_OPTIONS}
+                    options={employees.map((e) => ({
+                      value: e.email || e.id,
+                      label: e.email || e.id,
+                    }))}
                   />
-                  <Input
-                    label="Email người thực hiện"
-                    type="email"
+                ) : (
+                  <Select
+                    label="Người thực hiện"
                     value={draft.assignee.email}
-                    onChange={(e) =>
+                    onChange={(value) =>
                       updateDraft((current) => ({
                         ...current,
-                        assignee: { ...current.assignee, email: e.target.value },
-                      }))
-                    }
-                    disabled
-                    hint="Tự động điền theo người thực hiện"
-                  />
-                </FieldGrid>
-              </div>
-
-              {/* 1f. Ghi chú */}
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500 mb-3">
-                  1f. Ghi chú
-                </h4>
-                <div className="space-y-4">
-                  <Textarea
-                    label="Ghi chú nội bộ"
-                    value={draft.notes.internal}
-                    onChange={(e) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        notes: { ...current.notes, internal: e.target.value },
-                      }))
-                    }
-                    placeholder="Ghi chú cho nội bộ VCPMC..."
-                  />
-                  <Textarea
-                    label="Điều khoản / Ghi chú xuất hợp đồng"
-                    value={draft.notes.contractTerms}
-                    onChange={(e) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        notes: {
-                          ...current.notes,
-                          contractTerms: e.target.value,
+                        assignee: {
+                          email: value,
                         },
                       }))
                     }
-                    placeholder="Điều khoản sẽ xuất hiện trên hợp đồng..."
+                    options={[
+                      { value: currentUser?.email || '', label: currentUser?.email || '' },
+                    ]}
                   />
-                </div>
+                )}
               </div>
             </div>
           </FormSection>
 
           {/* =================================================================== */}
-          {/* SECTION 2: LĨNH VỰC */}
+          {/* SECTION 4: LĨNH VỰC */}
           {/* Domain selector - all Background domains */}
           {/* =================================================================== */}
           <FormSection
-            title="2. Lĩnh vực"
+            title="4. Lĩnh vực"
             description="Chọn lĩnh vực kinh doanh Background"
           >
             <div className="space-y-4">
@@ -2015,8 +1949,8 @@ export function CreateContractPage({
               />
 
               {/* Domain description */}
-              <div className="p-3 rounded-lg bg-indigo-50/50 ring-1 ring-indigo-600/10">
-                <p className="text-xs text-indigo-700">
+              <div className="p-3 rounded-lg bg-amber-50/50 ring-1 ring-amber-700/10">
+                <p className="text-xs text-amber-800">
                   <span className="font-semibold">
                     {draft.domain.domainDisplayName}
                   </span>
@@ -2031,7 +1965,7 @@ export function CreateContractPage({
           {/* Phase BACKGROUND-TEMPLATE-REFACTOR: Template selection */}
           {/* =================================================================== */}
           <FormSection
-            title="2b. Mẫu xuất hợp đồng"
+            title="5. Mẫu xuất hợp đồng"
             description="Chọn mẫu Word để xuất hợp đồng"
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2045,7 +1979,7 @@ export function CreateContractPage({
                 className={`
                   relative p-4 rounded-xl border-2 text-left transition-all
                   ${draft.contractTemplateCode === 'TEMPLATE_1'
-                    ? 'border-violet-600 bg-violet-50 shadow-sm'
+                    ? 'border-amber-700 bg-amber-50 shadow-sm'
                     : 'border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50'
                   }
                 `}
@@ -2054,7 +1988,7 @@ export function CreateContractPage({
                   <div className={`
                     flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center
                     ${draft.contractTemplateCode === 'TEMPLATE_1'
-                      ? 'border-violet-600 bg-violet-600'
+                      ? 'border-amber-700 bg-amber-700'
                       : 'border-zinc-300'
                     }
                   `}>
@@ -2067,14 +2001,14 @@ export function CreateContractPage({
                   <div className="flex-1 min-w-0">
                     <p className={`font-semibold ${
                       draft.contractTemplateCode === 'TEMPLATE_1'
-                        ? 'text-violet-900'
+                        ? 'text-amber-950'
                         : 'text-zinc-900'
                     }`}>
                       Mẫu 1
                     </p>
                     <p className={`text-xs mt-0.5 ${
                       draft.contractTemplateCode === 'TEMPLATE_1'
-                        ? 'text-violet-700'
+                        ? 'text-amber-800'
                         : 'text-zinc-500'
                     }`}>
                       export_template_contract_1.docx
@@ -2083,7 +2017,7 @@ export function CreateContractPage({
                 </div>
                 {draft.contractTemplateCode === 'TEMPLATE_1' && (
                   <div className="absolute top-2 right-2">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-600 text-white">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-700 text-white">
                       Đang chọn
                     </span>
                   </div>
@@ -2100,7 +2034,7 @@ export function CreateContractPage({
                 className={`
                   relative p-4 rounded-xl border-2 text-left transition-all
                   ${draft.contractTemplateCode === 'TEMPLATE_2'
-                    ? 'border-violet-600 bg-violet-50 shadow-sm'
+                    ? 'border-amber-700 bg-amber-50 shadow-sm'
                     : 'border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50'
                   }
                 `}
@@ -2109,7 +2043,7 @@ export function CreateContractPage({
                   <div className={`
                     flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center
                     ${draft.contractTemplateCode === 'TEMPLATE_2'
-                      ? 'border-violet-600 bg-violet-600'
+                      ? 'border-amber-700 bg-amber-700'
                       : 'border-zinc-300'
                     }
                   `}>
@@ -2122,14 +2056,14 @@ export function CreateContractPage({
                   <div className="flex-1 min-w-0">
                     <p className={`font-semibold ${
                       draft.contractTemplateCode === 'TEMPLATE_2'
-                        ? 'text-violet-900'
+                        ? 'text-amber-950'
                         : 'text-zinc-900'
                     }`}>
                       Mẫu 2
                     </p>
                     <p className={`text-xs mt-0.5 ${
                       draft.contractTemplateCode === 'TEMPLATE_2'
-                        ? 'text-violet-700'
+                        ? 'text-amber-800'
                         : 'text-zinc-500'
                     }`}>
                       export_template_contract_2.docx
@@ -2138,7 +2072,7 @@ export function CreateContractPage({
                 </div>
                 {draft.contractTemplateCode === 'TEMPLATE_2' && (
                   <div className="absolute top-2 right-2">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-600 text-white">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-700 text-white">
                       Đang chọn
                     </span>
                   </div>
@@ -2153,11 +2087,11 @@ export function CreateContractPage({
           </FormSection>
 
           {/* =================================================================== */}
-          {/* SECTION 3: KHU VỰC KINH DOANH */}
+          {/* SECTION 6: KHU VỰC KINH DOANH */}
           {/* Domain-specific fields */}
           {/* =================================================================== */}
           <FormSection
-            title="3. Khu vực kinh doanh"
+            title="6. Khu vực kinh doanh & Tiền bản quyền"
             description="Thông tin tùy theo lĩnh vực đã chọn"
           >
             {isKaraokeDomain ? (
@@ -2303,6 +2237,9 @@ export function CreateContractPage({
             >
               Hủy
             </Button>
+            <Button variant="ghost" onClick={handleSaveDraft}>
+              Lưu nháp cục bộ
+            </Button>
             <div className="flex-1" />
             <Button
               variant="primary"
@@ -2312,9 +2249,6 @@ export function CreateContractPage({
               title="Tạo hợp đồng chính thức"
             >
               {isCreateLoading ? 'Đang tạo...' : 'Tạo hợp đồng'}
-            </Button>
-            <Button variant="secondary" onClick={handleSaveDraft}>
-              Lưu nháp cục bộ
             </Button>
           </div>
         </div>
@@ -2363,7 +2297,7 @@ export function CreateContractPage({
                 {/* Phase BACKGROUND-TEMPLATE-REFACTOR: Show selected export template */}
                 <div className="flex justify-between">
                   <span className="text-zinc-600">Mẫu xuất</span>
-                  <span className="font-medium text-violet-700">
+                  <span className="font-medium text-amber-800">
                     {draft.contractTemplateCode === 'TEMPLATE_2' ? 'Mẫu 2' : 'Mẫu 1'}
                   </span>
                 </div>
@@ -2403,6 +2337,12 @@ export function CreateContractPage({
                     </span>
                   </div>
                 )}
+                {(draft.areaBased.musicUsageAreas?.length ?? 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-600">Khu vực sử dụng</span>
+                    <span>{draft.areaBased.musicUsageAreas.length} khu vực</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-zinc-600">Thời hạn</span>
                   <span>
@@ -2411,15 +2351,35 @@ export function CreateContractPage({
                       : '(chưa có)'}
                   </span>
                 </div>
-                {(draft.areaBased.royaltyAmountAfterVat ?? 0) > 0 && (
-                  <div className="pt-2 border-t border-zinc-200 flex justify-between">
-                    <span className="font-semibold text-zinc-900">
-                      Tổng tiền
-                    </span>
-                    <span className="font-mono font-bold text-emerald-700">
-                      {(draft.areaBased.royaltyAmountAfterVat ?? 0).toLocaleString('vi-VN')} đ
-                    </span>
-                  </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-600">Phụ trách</span>
+                  <span className="truncate max-w-[150px]">
+                    {draft.assignee?.name || '(chưa có)'}
+                  </span>
+                </div>
+                {(draft.areaBased.royaltyAmountBeforeVat ?? 0) > 0 && (
+                  <>
+                    <div className="pt-2 border-t border-zinc-200 flex justify-between">
+                      <span className="text-zinc-600">Trước VAT</span>
+                      <span className="font-mono tabular-nums">
+                        {(draft.areaBased.royaltyAmountBeforeVat ?? 0).toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-600">VAT ({draft.areaBased.vatRate ?? 0}%)</span>
+                      <span className="font-mono tabular-nums">
+                        {(draft.areaBased.vatAmount ?? 0).toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-semibold text-zinc-900">
+                        Tổng tiền
+                      </span>
+                      <span className="font-mono font-bold text-emerald-700 tabular-nums">
+                        {(draft.areaBased.royaltyAmountAfterVat ?? 0).toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -2454,7 +2414,7 @@ export function CreateContractPage({
             </div>
 
             {/* Info note */}
-            <div className="rounded-lg bg-sky-50 p-3 text-xs text-sky-800 ring-1 ring-sky-600/15">
+            <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-700/15">
               <p className="font-semibold">Lưu ý:</p>
               <ul className="mt-1 space-y-1">
                 <li>• Số HĐ là USER INPUT</li>
