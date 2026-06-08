@@ -14,11 +14,10 @@ dist-ssr
 _local-real-data/
 *.raw.json
 *.raw.ndjson
+public/local-real-preview.json
+public/*.real.json
 
 # Editor directories and files
-_local-real-data/
-*.raw.json
-*.raw.ndjson
 .vscode/*
 !.vscode/extensions.json
 .idea

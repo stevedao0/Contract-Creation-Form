@@ -1,145 +1,135 @@
-import React, { useMemo, useState } from 'react';
+import React from 'react';
 import './foundation/enterprise.css';
-import {
-  certificateRows,
-  contractRows,
-  demoActivities,
-  demoNav,
-  dispatchRows,
-  domainLabels,
-  expiringContractRows,
-  metricCards,
-  priorityDispatchRows,
-  reportBreakdown,
-  riskyCertificateRows,
-} from './demo/mockData';
-import { Badge, Button, Card, Chip, Dialog, EmptyState, IconButton, Panel, ScrollArea, Separator, Skeleton, Tabs, Tooltip } from './primitives';
+import { loadDemoData, sanitizedDemoData, type DemoDataSet } from './demo/dataSource';
+import { Badge, Button, Card, Dialog, EmptyState, Tooltip, Separator } from './primitives';
 import { EnterpriseAppShell, WorkspaceSidebar, Topbar, Page, PageHeader, PageSection, WorkspaceLayout, DomainSwitcher } from './layout';
 import { TextField, Textarea, SelectField, MoneyInput, PercentInput, DatePicker, FileUpload } from './forms';
-import { ActivityList, AlertPanel, BulkActionsBar, ContractNoCell, ContractStatusBadge, CustomerCell, BusinessLocationCell, UsageAreaChipGroup, RoyaltyAmountCell, DispatchStatusBadge, EmptyTableState, ErrorTableState, LoadingTableState, RecentList, RowActions, TableDensityToggle, TablePagination, TableShell, TableToolbar } from './data-display';
+import { ActivityList, AlertPanel, BulkActionsBar, ContractNoCell, ContractStatusBadge, CustomerCell, BusinessLocationCell, UsageAreaChipGroup, RoyaltyAmountCell, DispatchStatusBadge, EmptyTableState, ErrorTableState, LoadingTableState, RowActions, TableDensityToggle, TablePagination, TableShell, TableToolbar } from './data-display';
 
 const fmtDate = (value: string | null) => value ?? '—';
 const compactMoney = (value: number) => `${(value / 1000000).toLocaleString('vi-VN')} triệu`;
 const metricTrend = ['▁▂▃▄▅▆▇', '▇▆▅▄▃▂▁', '▁▃▅▃▆▅▇', '▂▂▃▄▅▅▆', '▁▂▂▃▅▆▇', '▃▄▃▅▄▆▇'];
 
-function OverviewScreen() {
+function DataModeBadge({ dataMode }: { dataMode: DemoDataSet['dataMode'] }) {
+  return <Badge tone={dataMode === 'local-real' ? 'warning' : 'info'}>{dataMode === 'local-real' ? 'Local real data preview' : 'Sanitized fixture data'}</Badge>;
+}
+
+function OverviewScreen({ data }: { data: DemoDataSet }) {
   return (
     <Page>
       <PageHeader
         title="VCPMC Enterprise OS"
         description="Real-data-shaped command center language for contracts, certificates, dispatches, and reporting workflows."
-        actions={<Badge tone="accent">Main only · fixture-shaped</Badge>}
+        actions={<DataModeBadge dataMode={data.dataMode} />}
       />
       <div className="vc-hero vc-hero--dense">
         <div className="vc-hero__headline">
           <div className="vc-eyebrow">Data shape first</div>
           <h1>Designed around long Vietnamese contract identifiers, dense customer records, realistic royalty ranges, and print-control edge cases.</h1>
-          <p>The command center now uses the sanitized fixture set as the visual baseline instead of short invented demo rows.</p>
+          <p>The command center now supports sanitized fixtures by default and a local-only exact-data preview when the preview file exists.</p>
           <div className="vc-toolbar__group">
-            <div className="vc-pill vc-pill--accent">Contract no up to 24 chars</div>
-            <div className="vc-pill">Customer up to 73 chars</div>
-            <div className="vc-pill">Address up to 76 chars</div>
+            <div className="vc-pill vc-pill--accent">{data.contractRows.length} hợp đồng hiển thị</div>
+            <div className="vc-pill">{data.certificateRows.length} GCN hiển thị</div>
+            <div className="vc-pill">{data.dispatchRows.length} công văn hiển thị</div>
           </div>
         </div>
-        <Panel>
+        <Card>
           <div className="vc-section-header">
             <div>
-              <h3>UI constraints from fixtures</h3>
-              <p>Current baseline needed denser rows, better truncation hierarchy, clearer money alignment, and stronger print queue warning states.</p>
+              <h3>Current preview mode</h3>
+              <p>{data.dataMode === 'local-real' ? 'Exact local real data is active for visual review only.' : 'Git-safe sanitized fixture mode is active.'}</p>
             </div>
           </div>
-          <RecentList items={[
-            'Mono contract numbers with stable width',
-            'Long customer + address hierarchy in one cell',
-            'Draft GCN rows without certificate number',
-            'Urgent dispatch queues with next-action cues',
-            'Compact status chips and sticky workspace controls',
-          ]} />
-        </Panel>
-      </div>
-    </Page>
-  );
-}
-
-function GalleryScreen() {
-  const stressContract = contractRows[9];
-  const pendingCert = riskyCertificateRows[0];
-  const urgentDispatch = priorityDispatchRows[0];
-
-  return (
-    <Page>
-      <PageHeader title="Component Gallery" description="Stress examples proving the system handles realistic field lengths, states, and dense workflows." actions={<Badge tone="teal">Stress-tested</Badge>} />
-      <div className="vc-gallery-grid">
-        <Card>
-          <h3>Long customer cell</h3>
-          <CustomerCell customer={stressContract.customer} />
-          <BusinessLocationCell location={stressContract.location} />
-          <div className="vc-inline-note">Truncation + hierarchy for customer and address in compact rows.</div>
-        </Card>
-        <Card>
-          <h3>Money + contract state</h3>
-          <ContractNoCell contractNo={stressContract.contractNo} />
-          <div style={{ marginTop: 10 }}><RoyaltyAmountCell amount={stressContract.amount} /></div>
-          <div className="vc-toolbar__group" style={{ marginTop: 10 }}>
-            <ContractStatusBadge status={stressContract.status} />
-            <Badge tone="warning">Expired / renewal risk</Badge>
-          </div>
-        </Card>
-        <Card>
-          <h3>Certificate warning state</h3>
-          <div className="vc-stack-sm">
-            <div className="vc-table__primary">{pendingCert.organizationName}</div>
-            <div className="vc-table__secondary">{pendingCert.certificateNo ?? 'Chưa có số GCN'}</div>
-            <div className="vc-toolbar__group">
-              <Badge tone="warning">Pending certificate</Badge>
-              <Badge tone="danger">Missing number</Badge>
-            </div>
-          </div>
-        </Card>
-        <Card>
-          <h3>Urgent dispatch</h3>
-          <div className="vc-stack-sm">
-            <div className="vc-table__primary">{urgentDispatch.dispatchNo}</div>
-            <div className="vc-table__secondary">{urgentDispatch.subject}</div>
-            <div className="vc-toolbar__group">
-              <Badge tone="danger">{urgentDispatch.priority}</Badge>
-              <DispatchStatusBadge status={urgentDispatch.status} />
-            </div>
-          </div>
-        </Card>
-      </div>
-      <div className="vc-grid-3">
-        <EmptyTableState />
-        <LoadingTableState />
-        <ErrorTableState />
-      </div>
-      <div className="vc-grid-2">
-        <Card>
-          <h3>Selection + bulk actions</h3>
-          <BulkActionsBar />
-          <div className="vc-inline-note">Shows selected-row pattern and dense action rhythm.</div>
-        </Card>
-        <Card>
-          <h3>Density states</h3>
-          <div className="vc-toolbar__group">
-            <TableDensityToggle />
-            <div className="vc-pill">Compact</div>
-            <div className="vc-pill">Comfortable</div>
-          </div>
-          <div style={{ marginTop: 12 }}><Separator /></div>
-          <div style={{ marginTop: 12 }}><Tooltip label="Column visibility control" /></div>
+          <div className="vc-inline-note">No backend runtime calls. No raw path exposed. Missing local preview file falls back automatically.</div>
         </Card>
       </div>
     </Page>
   );
 }
 
-function DashboardScreen() {
+function GalleryScreen({ data }: { data: DemoDataSet }) {
+  const stressContract = data.contractRows[Math.min(9, data.contractRows.length - 1)] ?? data.contractRows[0];
+  const pendingCert = data.riskyCertificateRows[0] ?? data.certificateRows[0];
+  const urgentDispatch = data.priorityDispatchRows[0] ?? data.dispatchRows[0];
+
   return (
     <Page>
-      <PageHeader title="Enterprise Dashboard" description="Premium operational cockpit using real-data-shaped contract, certificate, and dispatch fixtures." actions={<Button variant="primary">Xuất snapshot</Button>} />
+      <PageHeader title="Component Gallery" description="Stress examples proving the system handles realistic field lengths, states, and dense workflows." actions={<DataModeBadge dataMode={data.dataMode} />} />
+      {stressContract && pendingCert && urgentDispatch ? (
+        <>
+          <div className="vc-gallery-grid">
+            <Card>
+              <h3>Long customer cell</h3>
+              <CustomerCell customer={stressContract.customer} />
+              <BusinessLocationCell location={stressContract.location} />
+              <div className="vc-inline-note">Truncation + hierarchy for customer and address in compact rows.</div>
+            </Card>
+            <Card>
+              <h3>Money + contract state</h3>
+              <ContractNoCell contractNo={stressContract.contractNo} />
+              <div style={{ marginTop: 10 }}><RoyaltyAmountCell amount={stressContract.amount} /></div>
+              <div className="vc-toolbar__group" style={{ marginTop: 10 }}>
+                <ContractStatusBadge status={stressContract.status} />
+                <Badge tone="warning">Expired / renewal risk</Badge>
+              </div>
+            </Card>
+            <Card>
+              <h3>Certificate warning state</h3>
+              <div className="vc-stack-sm">
+                <div className="vc-table__primary">{pendingCert.organizationName}</div>
+                <div className="vc-table__secondary">{pendingCert.certificateNo ?? 'Chưa có số GCN'}</div>
+                <div className="vc-toolbar__group">
+                  <Badge tone="warning">Pending certificate</Badge>
+                  <Badge tone="danger">Missing number</Badge>
+                </div>
+              </div>
+            </Card>
+            <Card>
+              <h3>Urgent dispatch</h3>
+              <div className="vc-stack-sm">
+                <div className="vc-table__primary">{urgentDispatch.dispatchNo}</div>
+                <div className="vc-table__secondary">{urgentDispatch.subject}</div>
+                <div className="vc-toolbar__group">
+                  <Badge tone="danger">{urgentDispatch.priority}</Badge>
+                  <DispatchStatusBadge status={urgentDispatch.status} />
+                </div>
+              </div>
+            </Card>
+          </div>
+          <div className="vc-grid-3">
+            <EmptyTableState />
+            <LoadingTableState />
+            <ErrorTableState />
+          </div>
+          <div className="vc-grid-2">
+            <Card>
+              <h3>Selection + bulk actions</h3>
+              <BulkActionsBar />
+              <div className="vc-inline-note">Shows selected-row pattern and dense action rhythm.</div>
+            </Card>
+            <Card>
+              <h3>Density states</h3>
+              <div className="vc-toolbar__group">
+                <TableDensityToggle />
+                <div className="vc-pill">Compact</div>
+                <div className="vc-pill">Comfortable</div>
+              </div>
+              <div style={{ marginTop: 12 }}><Separator /></div>
+              <div style={{ marginTop: 12 }}><Tooltip label="Column visibility control" /></div>
+            </Card>
+          </div>
+        </>
+      ) : <EmptyState title="Thiếu dữ liệu demo" description="Không có dữ liệu để dựng gallery." />}
+    </Page>
+  );
+}
+
+function DashboardScreen({ data }: { data: DemoDataSet }) {
+  return (
+    <Page>
+      <PageHeader title="Enterprise Dashboard" description="Premium operational cockpit using fixture or local-real contract, certificate, and dispatch data." actions={<DataModeBadge dataMode={data.dataMode} />} />
       <div className="vc-command-strip">
-        {metricCards.slice(0, 6).map((item, index) => (
+        {data.metricCards.slice(0, 6).map((item, index) => (
           <Card key={item.label}>
             <div className="vc-metric-card">
               <div className="vc-metric-card__top">
@@ -161,7 +151,7 @@ function DashboardScreen() {
           <div className="vc-section-header">
             <div>
               <h3>Revenue & contract health cockpit</h3>
-              <p>Revenue trend, domain mix, health distribution, and command risk score in one dense workbench.</p>
+              <p>{data.dashboard.heroTitle}</p>
             </div>
             <Badge tone="accent">SLA 92/100</Badge>
           </div>
@@ -169,24 +159,24 @@ function DashboardScreen() {
             <div className="vc-chart-panel">
               <div className="vc-chart-title">Doanh thu theo chu kỳ</div>
               <div className="vc-line-visual">▁▂▃▄▅▆▇▆▅▆▇</div>
-              <div className="vc-inline-note">128,4 tỷ dự kiến · trục chính đang tăng theo hợp đồng key account.</div>
+              <div className="vc-inline-note">Doanh thu và khối lượng hợp đồng phản ánh theo nguồn dữ liệu hiện tại.</div>
             </div>
             <div className="vc-chart-panel">
               <div className="vc-chart-title">Phân bổ theo lĩnh vực</div>
-              {reportBreakdown.map((item) => (
-                <div key={item.label} className="vc-bar-row"><span>{item.label}</span><div><i style={{ width: `${item.count / 4}px` }} /></div><strong>{item.count}</strong></div>
+              {data.reportBreakdown.map((item) => (
+                <div key={item.label} className="vc-bar-row"><span>{item.label}</span><div><i style={{ width: `${Math.max(12, item.count / 4)}px` }} /></div><strong>{item.count}</strong></div>
               ))}
             </div>
             <div className="vc-chart-panel">
               <div className="vc-chart-title">Contract health</div>
               {['Đang hiệu lực', 'Sắp hết hạn', 'Chờ tái ký', 'Bản nháp', 'Hết hạn'].map((status) => (
-                <div key={status} className="vc-health-row"><span>{status}</span><strong>{contractRows.filter((row) => row.status === status).length}</strong></div>
+                <div key={status} className="vc-health-row"><span>{status}</span><strong>{data.contractRows.filter((row) => row.status === status).length}</strong></div>
               ))}
             </div>
             <div className="vc-chart-panel">
               <div className="vc-chart-title">Risk summary</div>
               <div className="vc-risk-score">74</div>
-              <div className="vc-inline-note">4 GCN draft thiếu số · 3 công văn khẩn · 12 hợp đồng cần theo dõi tái ký.</div>
+              <div className="vc-inline-note">{data.riskyCertificateRows.length} GCN draft/thiếu số · {data.priorityDispatchRows.length} dispatch cần theo dõi.</div>
             </div>
           </div>
         </Card>
@@ -197,41 +187,29 @@ function DashboardScreen() {
               <p>Today risk summary, approvals, print warnings, and suggested next actions.</p>
             </div>
           </div>
-          <ActivityList items={demoActivities} />
+          <ActivityList items={data.demoActivities} />
           <div className="vc-stack-sm" style={{ marginTop: 16 }}>
-            <div className="vc-pill">7 pending approvals</div>
-            <div className="vc-pill">4 print warnings</div>
-            <div className="vc-pill">2 batch review lanes</div>
+            <div className="vc-pill">{data.riskyCertificateRows.length} print warnings</div>
+            <div className="vc-pill">{data.priorityDispatchRows.length} dispatch follow-ups</div>
+            <div className="vc-pill">{data.expiringContractRows.length} hợp đồng cần chú ý</div>
           </div>
         </Card>
       </div>
       <div className="vc-grid-3">
-        <QueueCard title="Expiring contracts queue" rows={expiringContractRows.slice(0, 5).map((row, index) => ({
-          primary: row.customer,
-          secondary: `${row.contractNo} · hết hiệu lực ${fmtDate(row.effectiveTo)}`,
-          tag: index < 2 ? 'Ưu tiên' : row.status,
-        }))} />
-        <QueueCard title="Certificate print queue" rows={riskyCertificateRows.slice(0, 5).map((row) => ({
-          primary: row.organizationName,
-          secondary: `${row.contractNo} · ${row.certificateNo ?? 'Chưa có số GCN'}`,
-          tag: row.status,
-        }))} />
-        <QueueCard title="Dispatch follow-up queue" rows={priorityDispatchRows.slice(0, 5).map((row) => ({
-          primary: row.subject,
-          secondary: `${row.dispatchNo} · ${row.contractNo}`,
-          tag: row.priority,
-        }))} />
+        <QueueCard title="Expiring contracts queue" rows={data.expiringContractRows.slice(0, 5).map((row, index) => ({ primary: row.customer, secondary: `${row.contractNo} · hết hiệu lực ${fmtDate(row.effectiveTo)}`, tag: index < 2 ? 'Ưu tiên' : row.status }))} />
+        <QueueCard title="Certificate print queue" rows={data.riskyCertificateRows.slice(0, 5).map((row) => ({ primary: row.organizationName, secondary: `${row.contractNo} · ${row.certificateNo ?? 'Chưa có số GCN'}`, tag: row.status }))} />
+        <QueueCard title="Dispatch follow-up queue" rows={data.priorityDispatchRows.slice(0, 5).map((row) => ({ primary: row.subject, secondary: `${row.dispatchNo} · ${row.contractNo}`, tag: row.priority }))} />
       </div>
     </Page>
   );
 }
 
-function ContractsScreen() {
-  const rows = contractRows.slice(0, 18);
+function ContractsScreen({ data }: { data: DemoDataSet }) {
+  const rows = data.contractRows.slice(0, 18);
   return (
     <Page>
-      <PageHeader title="Contracts Workspace" description="Dense contract command desk designed around real field lengths, status distributions, and renewal pressure." actions={<Button variant="primary">Tạo hợp đồng</Button>} />
-      <div className="vc-workspace-tabs"><Tabs items={['Tất cả', 'Sắp hết hạn', 'Chờ tái ký', 'Thiếu GCN', 'Key accounts']} active="Tất cả" /></div>
+      <PageHeader title="Contracts Workspace" description="Dense contract command desk designed around real field lengths, status distributions, and renewal pressure." actions={<DataModeBadge dataMode={data.dataMode} />} />
+      <div className="vc-workspace-tabs"><div className="vc-toolbar__group"><Button variant="subtle">Tất cả</Button><Button variant="ghost">Sắp hết hạn</Button><Button variant="ghost">Chờ tái ký</Button><Button variant="ghost">Thiếu GCN</Button><Button variant="ghost">Key accounts</Button></div></div>
       <BulkActionsBar />
       <TableShell
         title="Danh sách hợp đồng"
@@ -303,7 +281,7 @@ function ContractsScreen() {
         </table>
         <div className="vc-table-footer-summary">
           <span>Đang chọn 2 hợp đồng</span>
-          <span>{rows.length} / {contractRows.length} dòng hiển thị</span>
+          <span>{rows.length} / {data.contractRows.length} dòng hiển thị</span>
           <span>Tổng giá trị trang này: {compactMoney(rows.reduce((sum, row) => sum + row.amount, 0))}</span>
         </div>
         <TablePagination />
@@ -317,15 +295,15 @@ function ContractsScreen() {
   );
 }
 
-function DispatchesScreen() {
+function DispatchesScreen({ data }: { data: DemoDataSet }) {
   return (
     <Page>
-      <PageHeader title="Dispatches Workspace" description="Official-letter work queue with urgency controls, batch actions, responsible staff, and next steps." actions={<Button variant="primary">Soạn công văn</Button>} />
+      <PageHeader title="Dispatches Workspace" description="Official-letter work queue with urgency controls, batch actions, responsible staff, and next steps." actions={<DataModeBadge dataMode={data.dataMode} />} />
       <WorkspaceLayout
         primary={
           <TableShell
             title="Luồng công văn"
-            description="Operational queue based on fixture-shaped dispatch records inferred from table structure."
+            description="Operational queue based on current data source."
             toolbar={<TableToolbar><div className="vc-toolbar__group"><div className="vc-pill">Ưu tiên</div><div className="vc-pill">Người ký</div><div className="vc-pill">Batch actions</div></div><div className="vc-toolbar__group"><Button variant="ghost">Xuất danh sách</Button></div></TableToolbar>}
           >
             <table className="vc-table vc-table--dense">
@@ -342,11 +320,11 @@ function DispatchesScreen() {
                 </tr>
               </thead>
               <tbody>
-                {dispatchRows.map((row, index) => (
+                {data.dispatchRows.map((row, index) => (
                   <tr key={row.id}>
                     <td><div className="vc-table__primary">{row.dispatchNo}</div><div className="vc-table__secondary">Batch {String((index % 4) + 1).padStart(2, '0')}</div></td>
                     <td><ContractNoCell contractNo={row.contractNo} /></td>
-                    <td><div className="vc-table__primary">{row.subject}</div><div className="vc-table__secondary">{['Công ty Hồng Phúc', 'Karaoke Thành Nguyên', 'Mega Mall Sao Việt', 'Riverside Garden'][index % 4]}</div></td>
+                    <td><div className="vc-table__primary">{row.subject}</div><div className="vc-table__secondary">{data.contractRows[index % Math.max(1, data.contractRows.length)]?.customer ?? 'Không rõ khách hàng'}</div></td>
                     <td><div className="vc-table__primary">{row.issueDate}</div><div className="vc-table__secondary">{row.status === 'Đã gửi' ? 'Đã phát hành' : 'Chờ thao tác'}</div></td>
                     <td><div className="vc-table__primary">{['Pháp chế 01', 'Điều phối 02', 'GCN 03', 'Miền Nam 04'][index % 4]}</div><div className="vc-table__secondary">{row.destination}</div></td>
                     <td><div className="vc-table__primary">{row.status === 'Chờ ký' ? 'Trình ký' : row.status === 'Đang soạn' ? 'Hoàn tất nội dung' : 'Theo dõi phản hồi'}</div><div className="vc-table__secondary">{row.note || 'Queue bình thường'}</div></td>
@@ -358,21 +336,21 @@ function DispatchesScreen() {
             </table>
           </TableShell>
         }
-        secondary={<AlertPanel title="Dispatch intelligence" description="3 công văn khẩn cần trình ký, 4 công văn cần xác minh địa điểm, 2 batch đang chờ khóa phát hành." />}
+        secondary={<AlertPanel title="Dispatch intelligence" description={`${data.priorityDispatchRows.length} công văn cần ưu tiên theo nguồn dữ liệu hiện tại.`} />}
       />
     </Page>
   );
 }
 
-function CreateContractScreen() {
+function CreateContractScreen({ data }: { data: DemoDataSet }) {
   return (
     <Page>
-      <PageHeader title="Contract Creation Form" description="Guided business workflow with denser sections and context tuned to real fixture lengths." actions={<Badge tone="accent">Workflow demo</Badge>} />
+      <PageHeader title="Contract Creation Form" description="Guided business workflow with denser sections and context tuned to current preview mode." actions={<DataModeBadge dataMode={data.dataMode} />} />
       <div className="vc-grid-2">
-        <PageSection title="Thông tin hợp đồng" description="Compact data-entry rhythm with fixture-based examples for long identifiers and domain mixes.">
+        <PageSection title="Thông tin hợp đồng" description="Compact data-entry rhythm with examples for long identifiers and domain mixes.">
           <div className="vc-form-grid">
-            <TextField label="Số hợp đồng" required hint="Ví dụ: 0645/2026/HĐQTGAN-PN/PR" />
-            <SelectField label="Lĩnh vực" options={domainLabels.slice(0, 6)} />
+            <TextField label="Số hợp đồng" required hint={data.contractRows[0] ? `Ví dụ: ${data.contractRows[0].contractNo}` : 'Ví dụ hợp đồng'} />
+            <SelectField label="Lĩnh vực" options={data.domainLabels.slice(0, 6)} />
             <TextField label="Tên khách hàng" required />
             <TextField label="Địa bàn kinh doanh" />
             <DatePicker label="Ngày hiệu lực" />
@@ -393,11 +371,12 @@ function CreateContractScreen() {
   );
 }
 
-function PrintScreen() {
-  const selected = certificateRows[0];
+function PrintScreen({ data }: { data: DemoDataSet }) {
+  const selected = data.certificateRows[0];
+  if (!selected) return <Page><EmptyState title="Không có GCN" description="Nguồn dữ liệu hiện tại không có bản ghi GCN." /></Page>;
   return (
     <Page>
-      <PageHeader title="Certificate Print Control" description="Print-control station for selected queue item, safety checks, preview, and issuance history." actions={<Button variant="primary">Khóa lô in</Button>} />
+      <PageHeader title="Certificate Print Control" description="Print-control station for selected queue item, safety checks, preview, and issuance history." actions={<DataModeBadge dataMode={data.dataMode} />} />
       <div className="vc-grid-2 vc-grid-2--asymmetric">
         <Card>
           <div className="vc-section-header">
@@ -410,8 +389,8 @@ function PrintScreen() {
           <div className="vc-print-summary">
             <div><span>Hợp đồng</span><strong>{selected.contractNo}</strong></div>
             <div><span>Hiệu lực</span><strong>{fmtDate(selected.effectiveFrom)} → {fmtDate(selected.effectiveTo)}</strong></div>
-            <div><span>QR status</span><strong>Sẵn sàng kiểm tra</strong></div>
-            <div><span>Tọa độ in</span><strong>An toàn · lệch dưới 0.8mm</strong></div>
+            <div><span>QR status</span><strong>{selected.qrStatus === 'available' ? 'Sẵn sàng kiểm tra' : 'Thiếu QR payload'}</strong></div>
+            <div><span>Tọa độ in</span><strong>{selected.offsetXmm != null || selected.offsetYmm != null ? `X ${selected.offsetXmm ?? 0} · Y ${selected.offsetYmm ?? 0}` : 'An toàn · chưa có offset'}</strong></div>
           </div>
           <div className="vc-toolbar__group" style={{ marginTop: 16 }}>
             <Button variant="subtle">In thử</Button>
@@ -436,7 +415,7 @@ function PrintScreen() {
             </div>
           </div>
           <div className="vc-queue-list">
-            {riskyCertificateRows.slice(0, 6).map((row) => (
+            {data.riskyCertificateRows.slice(0, 6).map((row) => (
               <div key={row.id} className="vc-queue-item">
                 <div>
                   <div className="vc-table__primary">{row.organizationName}</div>
@@ -455,14 +434,14 @@ function PrintScreen() {
   );
 }
 
-function ReportsScreen() {
+function ReportsScreen({ data }: { data: DemoDataSet }) {
   return (
     <Page>
-      <PageHeader title="Reports Workspace" description="Analytics-grade reporting with revenue trend, domain breakdown, status distribution, and export controls." actions={<Button variant="primary">Xuất báo cáo</Button>} />
+      <PageHeader title="Reports Workspace" description="Analytics-grade reporting with revenue trend, domain breakdown, status distribution, and export controls." actions={<DataModeBadge dataMode={data.dataMode} />} />
       <div className="vc-report-toolbar">
         <div className="vc-toolbar__group">
-          <div className="vc-pill">Tháng 06/2026</div>
-          <div className="vc-pill">Miền Nam</div>
+          <div className="vc-pill">Chu kỳ hiện tại</div>
+          <div className="vc-pill">Theo nguồn dữ liệu đang mở</div>
           <div className="vc-pill">Theo lĩnh vực</div>
         </div>
         <div className="vc-toolbar__group">
@@ -474,20 +453,20 @@ function ReportsScreen() {
         <Card>
           <div className="vc-section-header"><div><h3>Revenue trend</h3><p>Royalty trajectory and contract portfolio health.</p></div></div>
           <div className="vc-line-visual vc-line-visual--large">▁▂▂▃▄▅▆▆▇█</div>
-          <div className="vc-inline-note">Chu kỳ phát hành GCN trung bình 12,8 ngày · 1.248 hợp đồng có đối soát kỳ này.</div>
+          <div className="vc-inline-note">Chu kỳ phát hành GCN trung bình {data.reports.avgCertificateCycleDays} ngày · {data.reports.activeReconciliationContracts.toLocaleString('vi-VN')} hợp đồng active.</div>
         </Card>
         <Card>
           <div className="vc-section-header"><div><h3>Contract status distribution</h3><p>Compact operational distribution.</p></div></div>
           {['Đang hiệu lực', 'Sắp hết hạn', 'Chờ tái ký', 'Bản nháp', 'Hết hạn'].map((status) => (
-            <div key={status} className="vc-health-row"><span>{status}</span><strong>{contractRows.filter((row) => row.status === status).length}</strong></div>
+            <div key={status} className="vc-health-row"><span>{status}</span><strong>{data.contractRows.filter((row) => row.status === status).length}</strong></div>
           ))}
         </Card>
       </div>
       <div className="vc-grid-2">
         <Card>
-          <div className="vc-section-header"><div><h3>Domain breakdown</h3><p>Real label mix from sampled domains.</p></div></div>
-          {reportBreakdown.map((item) => (
-            <div key={item.label} className="vc-bar-row"><span>{item.label}</span><div><i style={{ width: `${item.count / 4}px` }} /></div><strong>{item.count}</strong></div>
+          <div className="vc-section-header"><div><h3>Domain breakdown</h3><p>Current label mix from active data source.</p></div></div>
+          {data.reportBreakdown.map((item) => (
+            <div key={item.label} className="vc-bar-row"><span>{item.label}</span><div><i style={{ width: `${Math.max(12, item.count / 4)}px` }} /></div><strong>{item.count}</strong></div>
           ))}
         </Card>
         <Card>
@@ -507,7 +486,7 @@ function ReportsScreen() {
         <table className="vc-table vc-table--dense">
           <thead><tr><th>Hợp đồng</th><th>Khách hàng</th><th>Hiệu lực đến</th><th>Giá trị</th><th>Trạng thái</th></tr></thead>
           <tbody>
-            {expiringContractRows.slice(0, 8).map((row) => (
+            {data.expiringContractRows.slice(0, 8).map((row) => (
               <tr key={row.id}><td><ContractNoCell contractNo={row.contractNo} /></td><td><CustomerCell customer={row.customer} /></td><td>{fmtDate(row.effectiveTo)}</td><td style={{ textAlign: 'right' }}>{compactMoney(row.amount)}</td><td><ContractStatusBadge status={row.status} /></td></tr>
             ))}
           </tbody>
@@ -523,7 +502,7 @@ function QueueCard({ title, rows }: { title: string; rows: Array<{ primary: stri
       <div className="vc-section-header">
         <div>
           <h3>{title}</h3>
-          <p>Serious work queue using fixture-shaped data.</p>
+          <p>Serious work queue using current data source.</p>
         </div>
       </div>
       <div className="vc-queue-list">
@@ -542,25 +521,36 @@ function QueueCard({ title, rows }: { title: string; rows: Array<{ primary: stri
 }
 
 export function EnterpriseDesignLabApp() {
-  const [active, setActive] = useState('dashboard');
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [active, setActive] = React.useState('dashboard');
+  const [theme, setTheme] = React.useState<'light' | 'dark'>('light');
+  const [data, setData] = React.useState<DemoDataSet>(sanitizedDemoData);
 
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  const screen = useMemo(() => {
+  React.useEffect(() => {
+    let alive = true;
+    loadDemoData().then((next) => {
+      if (alive) setData(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const screen = React.useMemo(() => {
     switch (active) {
-      case 'gallery': return <GalleryScreen />;
-      case 'dashboard': return <DashboardScreen />;
-      case 'contracts': return <ContractsScreen />;
-      case 'dispatches': return <DispatchesScreen />;
-      case 'create': return <CreateContractScreen />;
-      case 'print': return <PrintScreen />;
-      case 'reports': return <ReportsScreen />;
-      default: return <OverviewScreen />;
+      case 'gallery': return <GalleryScreen data={data} />;
+      case 'dashboard': return <DashboardScreen data={data} />;
+      case 'contracts': return <ContractsScreen data={data} />;
+      case 'dispatches': return <DispatchesScreen data={data} />;
+      case 'create': return <CreateContractScreen data={data} />;
+      case 'print': return <PrintScreen data={data} />;
+      case 'reports': return <ReportsScreen data={data} />;
+      default: return <OverviewScreen data={data} />;
     }
-  }, [active]);
+  }, [active, data]);
 
   return (
     <EnterpriseAppShell
@@ -571,21 +561,21 @@ export function EnterpriseDesignLabApp() {
               <div className="vc-brandmark">VC</div>
               <div className="vc-brandcopy">
                 <h1>VCPMC Command Center</h1>
-                <p>Real-data-shaped design lab on main</p>
+                <p>Safe default + local real preview mode</p>
               </div>
             </div>
-            <Badge tone="accent">LIVE-SHAPED</Badge>
+            <DataModeBadge dataMode={data.dataMode} />
           </div>
           <div className="vc-stack" style={{ marginBottom: 'var(--vc-space-6)' }}>
             <DomainSwitcher items={['Contracts', 'Certificates', 'Dispatches']} />
             <div className="vc-sidebar-summary">
-              <div><strong>{contractRows.length}</strong><span>contracts</span></div>
-              <div><strong>{certificateRows.length}</strong><span>certificates</span></div>
-              <div><strong>{dispatchRows.length}</strong><span>dispatches</span></div>
+              <div><strong>{data.contractRows.length}</strong><span>contracts</span></div>
+              <div><strong>{data.certificateRows.length}</strong><span>certificates</span></div>
+              <div><strong>{data.dispatchRows.length}</strong><span>dispatches</span></div>
             </div>
           </div>
           <nav className="vc-nav">
-            {demoNav.map((item) => (
+            {data.demoNav.map((item) => (
               <button key={item.id} type="button" data-active={active === item.id} onClick={() => setActive(item.id)}>
                 <div className="vc-nav__label">
                   <span>{item.label}</span>
@@ -600,10 +590,10 @@ export function EnterpriseDesignLabApp() {
       topbar={
         <Topbar
           title="Magic Pattern / Contract-Creation-Form"
-          description="Premium Vietnamese enterprise command center refined from sanitized real-data-shaped fixtures."
+          description="Premium Vietnamese enterprise command center with safe local-only real data preview fallback."
           actions={
             <>
-              <Badge tone="info">main</Badge>
+              <DataModeBadge dataMode={data.dataMode} />
               <Button variant="ghost" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>Theme: {theme}</Button>
             </>
           }
