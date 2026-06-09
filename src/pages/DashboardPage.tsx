@@ -37,6 +37,7 @@ import { RouteKey } from '../data/routes';
 import { formatNumber } from '../lib/format';
 import { TOKEN_KEY } from '../lib/authClient';
 import { apiRequest } from '../lib/apiClient';
+import { EnterpriseBadge, EnterprisePage, EnterprisePanel, EnterpriseSectionHeader, EnterpriseSummaryStrip } from '../components/enterprise';
 
 
 const YEAR_OPTIONS = [
@@ -190,16 +191,21 @@ export function DashboardPage({
     daysLeft: c.days_left,
     value: c.value,
   }));
+  const dashboardQueue = expiringItems.slice(0, 6);
+  const commandHighlights = stats
+    ? [
+        { label: 'GCN bản nháp', value: formatNumber(stats.gcnDraft), tone: 'warning' as const },
+        { label: 'Chờ tái ký', value: formatNumber(stats.pendingRenewal), tone: 'violet' as const },
+        { label: 'Hết hạn', value: formatNumber(stats.expired), tone: 'danger' as const },
+      ]
+    : [];
 
   return (
     <Page>
+      <EnterprisePage>
       <PageHeader
-        title={
-          <>
-            Xin chào, <span className="text-amber-700">{userEmail}</span>
-          </>
-        }
-        description="Tổng quan vận hành hôm nay."
+        title="Command Center"
+        description="Operational summary cho workspace Background Music với dữ liệu thật từ hệ thống."
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -219,87 +225,44 @@ export function DashboardPage({
         }
       />
 
-      {/* Hero — KPIs from real API */}
-      <HeroPanel
-        eyebrow="Tổng quan vận hành"
-        title={
-          loading ? (
-            'Đang tải...'
-          ) : error ? (
-            'Không tải được dữ liệu'
-          ) : stats ? (
-            <>
-              <span className="tabular-nums">{formatNumber(stats.totalContracts)}</span>{' '}
-              hợp đồng đang quản lý
-              <span className="text-amber-300"> · </span>
-              <span className="tabular-nums">{stats.expiring30 + stats.expiring60}</span>{' '}
-              hành động cần xử lý
-            </>
-          ) : (
-            '—'
-          )
-        }
-        description={
-          stats
-            ? `Có ${stats.expiring30} hợp đồng sắp hết trong 30 ngày · ${stats.expiring60} sắp hết trong 60 ngày · ${formatNumber(stats.gcnDraft)} GCN bản nháp đang chờ phát hành.`
-            : error
-            ? error
-            : 'Đang tải dữ liệu...'
-        }
-        stats={
-          stats
-            ? [
-                { label: 'GCN bản nháp', value: formatNumber(stats.gcnDraft) },
-                { label: 'Sắp hết 60 ngày', value: formatNumber(stats.expiring60) },
-                { label: 'Chờ tái ký', value: formatNumber(stats.pendingRenewal) },
-              ]
-            : []
-        }
-        actions={
-          <>
-            <Button
-              variant="glassPrimary"
-              size="lg"
-              leftIcon={<FilePlusIcon className="h-4 w-4" />}
-              onClick={() => onNavigate('contracts.create')}
-            >
-              Tạo hợp đồng mới
-            </Button>
-            <Button
-              variant="glass"
-              size="lg"
-              leftIcon={<SearchIcon className="h-4 w-4" />}
-              onClick={() => onNavigate('search')}
-            >
-              Tìm kiếm
-            </Button>
-          </>
-        }
-      />
+      <EnterprisePanel className="vc-enterprise-command-header">
+        <EnterpriseSectionHeader
+          eyebrow="Enterprise command center"
+          title={<span>Xin chào, <span className="text-[var(--vc-enterprise-accent-strong)]">{userEmail}</span></span>}
+          description={
+            stats
+              ? `Đang theo dõi ${formatNumber(stats.totalContracts)} hợp đồng, ${formatNumber(stats.expiring30 + stats.expiring60)} việc cần chú ý và ${formatNumber(stats.gcnDraft)} GCN bản nháp.`
+              : error
+                ? error
+                : 'Đang tải dữ liệu vận hành...'
+          }
+          actions={stats ? <EnterpriseBadge tone="accent">{formatNumber(stats.totalContracts)} contracts</EnterpriseBadge> : undefined}
+        />
+      </EnterprisePanel>
 
-      {/* KPIs — all from real API */}
-      <MetricStrip
+      <EnterpriseSummaryStrip
         items={[
           {
             label: 'Tổng hợp đồng',
             value: loading ? '—' : formatNumber(stats?.totalContracts ?? 0),
-            tone: 'indigo',
+            tone: 'accent',
             icon: <FileTextIcon className="h-4 w-4" />,
             hint: 'Workspace Background',
           },
           {
             label: 'Còn hiệu lực',
             value: loading ? '—' : formatNumber(stats?.active ?? 0),
-            tone: 'emerald',
+            tone: 'success',
             icon: <CheckCircle2Icon className="h-4 w-4" />,
-            hint: stats && stats.totalContracts > 0
-              ? `${((stats.active / stats.totalContracts) * 100).toFixed(1)}% tổng số`
-              : 'Tổng Background',
+            hint:
+              stats && stats.totalContracts > 0
+                ? `${((stats.active / stats.totalContracts) * 100).toFixed(1)}% tổng số`
+                : 'Tổng Background',
           },
           {
             label: 'Sắp hết 60 ngày',
             value: loading ? '—' : formatNumber(stats?.expiring60 ?? 0),
-            tone: 'amber',
+            tone: 'warning',
             icon: <AlertTriangleIcon className="h-4 w-4" />,
             hint:
               stats && stats.expiring30 > 0
@@ -316,7 +279,7 @@ export function DashboardPage({
           {
             label: 'GCN đã in',
             value: loading ? '—' : formatNumber(stats?.gcnFinalPrinted ?? 0),
-            tone: 'emerald',
+            tone: 'success',
             icon: <AwardIcon className="h-4 w-4" />,
             hint:
               stats && stats.gcnDraft > 0
@@ -325,28 +288,25 @@ export function DashboardPage({
           },
           {
             label: 'Doanh thu 2026',
-            value: loading
-              ? '—'
-              : revenue2026 > 0
-                ? `${(revenue2026 / 1_000_000_000).toFixed(2)} tỷ`
-                : 'Chưa có',
-            tone: 'cyan',
+            value:
+              loading
+                ? '—'
+                : revenue2026 > 0
+                  ? `${(revenue2026 / 1_000_000_000).toFixed(2)} tỷ`
+                  : 'Chưa có',
+            tone: 'teal',
             icon: <WalletIcon className="h-4 w-4" />,
             delta:
               revenueDeltaPct !== null
-                ? {
-                    value: `${revenueDeltaPct >= 0 ? '+' : ''}${revenueDeltaPct.toFixed(1)}%`,
-                    tone: revenueDeltaPct >= 0 ? ('up' as const) : ('down' as const),
-                  }
+                ? `${revenueDeltaPct >= 0 ? '+' : ''}${revenueDeltaPct.toFixed(1)}% so với 2025`
                 : undefined,
             hint: revenueDeltaPct !== null ? 'So với 2025' : 'Chưa có dữ liệu năm trước',
           },
-
         ]}
       />
 
-      {/* Year compare + Status breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="vc-enterprise-command-grid">
+        <div className="vc-enterprise-command-main">
         <ContentCard
           title="Doanh thu theo năm"
           description="Đơn vị: tỷ VND · So sánh qua các năm (lũy kế đến nay)"
@@ -463,12 +423,16 @@ export function DashboardPage({
             </div>
           )}
         </ContentCard>
+        </div>
 
-        <ContentCard
-          title="Tỷ lệ trạng thái hợp đồng"
-          description="Phân bổ toàn bộ workspace Background"
-          accent
-        >
+        <div className="vc-enterprise-side-stack">
+          <EnterprisePanel>
+            <EnterpriseSectionHeader
+              eyebrow="Command status"
+              title="Tỷ lệ trạng thái hợp đồng"
+              description="Phân bổ toàn bộ workspace Background"
+              actions={stats ? <EnterpriseBadge tone="accent">{formatNumber(stats.totalContracts)} hợp đồng</EnterpriseBadge> : undefined}
+            />
           {statusBreakdown.length > 0 && stats ? (
             <ProgressStatusPanel
               items={statusBreakdown}
@@ -480,16 +444,49 @@ export function DashboardPage({
               {loading ? 'Đang tải...' : 'Chưa có dữ liệu'}
             </div>
           )}
-        </ContentCard>
+          </EnterprisePanel>
+          <EnterprisePanel className="vc-enterprise-intelligence-panel">
+            <EnterpriseSectionHeader
+              eyebrow="Intelligence"
+              title="Operational signals"
+              description="Tín hiệu ưu tiên được tổng hợp từ dữ liệu dashboard đang có."
+              actions={stats ? <EnterpriseBadge tone="neutral">Real data only</EnterpriseBadge> : undefined}
+            />
+            <div className="mt-4 grid gap-3">
+              {commandHighlights.length > 0 ? commandHighlights.map((item) => (
+                <div key={item.label} className="vc-enterprise-queue-item">
+                  <div>
+                    <div className="vc-enterprise-label">{item.label}</div>
+                    <div className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900">{item.value}</div>
+                  </div>
+                  <EnterpriseBadge tone={item.tone}>{item.label}</EnterpriseBadge>
+                </div>
+              )) : (
+                <div className="py-8 text-center text-sm text-zinc-400">
+                  {loading ? 'Đang tải...' : 'Chưa có tín hiệu vận hành'}
+                </div>
+              )}
+            </div>
+            <div className="mt-4 rounded-2xl border border-[rgba(18,45,37,0.08)] bg-[rgba(15,143,114,0.04)] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="vc-enterprise-label">Queue sắp hết hạn</div>
+                  <div className="mt-2 text-sm text-zinc-700">
+                    {dashboardQueue.length > 0 ? `${dashboardQueue.length} hợp đồng ưu tiên xử lý đầu tiên.` : 'Không có hợp đồng cần ưu tiên ngay.'}
+                  </div>
+                </div>
+                <EnterpriseBadge tone="warning">{formatNumber(expiringItems.length)}</EnterpriseBadge>
+              </div>
+            </div>
+          </EnterprisePanel>
+        </div>
       </div>
-
-      {/* Lists */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="vc-enterprise-command-grid vc-enterprise-lower-grid">
         <ContentCard
           title="Hợp đồng sắp hết hạn"
           description={
             expiringItems.length > 0
-              ? `${expiringItems.length} hợp đồng sắp hết · giá trị từ API`
+              ? `${expiringItems.length} hợp đồng sắp hết · hiển thị ưu tiên ${dashboardQueue.length} dòng đầu tiên`
               : 'Trong 60 ngày tới'
           }
           className="lg:col-span-2"
@@ -505,8 +502,8 @@ export function DashboardPage({
             </Button>
           }
         >
-          {expiringItems.length > 0 ? (
-            <ExpiringList items={expiringItems} />
+          {dashboardQueue.length > 0 ? (
+            <ExpiringList items={dashboardQueue} />
           ) : (
             <div className="py-12 text-center text-sm text-zinc-400">
               {loading ? 'Đang tải...' : 'Không có hợp đồng sắp hết trong 60 ngày tới'}
@@ -514,7 +511,7 @@ export function DashboardPage({
           )}
         </ContentCard>
 
-        <ContentCard title="Hoạt động gần đây" padded={false}>
+        <ContentCard title="Hoạt động gần đây" padded={false} className="vc-enterprise-panel">
           <div className="py-12 text-center text-sm text-zinc-400">
             Chưa có dữ liệu hoạt động
           </div>
@@ -526,6 +523,7 @@ export function DashboardPage({
         title="Thao tác nhanh"
         description="Đi tới các trang nghiệp vụ chính"
         accent
+        className="vc-enterprise-panel"
       >
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {[
@@ -547,6 +545,7 @@ export function DashboardPage({
           ))}
         </div>
       </ContentCard>
+      </EnterprisePage>
     </Page>
   );
 }
