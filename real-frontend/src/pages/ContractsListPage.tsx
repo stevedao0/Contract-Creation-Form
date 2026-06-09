@@ -1,0 +1,1359 @@
+import React, { useEffect, useState, useMemo } from 'react';
+import {
+  FilePlusIcon,
+  RefreshCwIcon,
+  EyeIcon,
+  PencilIcon,
+  FileDownIcon,
+  AwardIcon,
+  PrinterIcon,
+  Trash2Icon,
+  FileTextIcon,
+  CheckCircle2Icon,
+  AlertTriangleIcon,
+  XCircleIcon,
+  XIcon,
+} from 'lucide-react';
+import { Page } from '../components/app-ui/Page';
+import { ContentCard } from '../components/app-ui/ContentCard';
+import { Button } from '../components/app-ui/Button';
+import { Select } from '../components/app-ui/Select';
+import { SearchBox } from '../components/app-ui/SearchBox';
+import { StatusBadge } from '../components/app-ui/StatusBadge';
+import { Checkbox } from '../components/app-ui/Checkbox';
+import { RowActionsMenu } from '../components/app-ui/RowActionsMenu';
+import { FilterBar, FilterField } from '../components/app-ui/FilterBar';
+import { BulkActionBar } from '../components/app-ui/BulkActionBar';
+import { Pagination } from '../components/app-ui/Pagination';
+import { TableSkeleton } from '../components/app-ui/TableSkeleton';
+import { EmptyState } from '../components/app-ui/EmptyState';
+
+import { Modal } from '../components/app-ui/Modal';
+import { RouteKey } from '../data/routes';
+import {
+  ContractRecord,
+  getExpiryStatus,
+  RENEWAL_LABEL } from
+'../data/contractRecords';
+import {
+  CONTRACT_YEAR_OPTIONS,
+  LINH_VUC_OPTIONS,
+  STATUS_OPTIONS,
+  FIELD_CODE_OPTIONS,
+  StatusFilter } from
+'../data/contractOptions';
+import { formatCurrency, formatDate, formatNumber } from '../lib/format';
+import {
+  ApiContractItem,
+  getContracts,
+  getContractsSummary,
+  exportDocxPreview,
+  getCertificateContextDryRun,
+  deleteContractCloneOnly,
+  type ExportPreviewResult,
+  type CertificateContextResult,
+  type DeleteContractCloneOnlyResult,
+  type ContractsSummaryStats,
+} from '../lib/contractsClient';
+import { useAuth } from '../lib/auth';
+import { TOKEN_KEY } from '../lib/authClient';
+import {
+  EnterpriseAmountCell,
+  EnterpriseBadge,
+  EnterpriseContractNoCell,
+  EnterpriseCustomerCell,
+  EnterpriseLocationCell,
+  EnterprisePage,
+  EnterpriseTableShell,
+  EnterpriseUsageChips,
+} from '../components/enterprise';
+
+/**
+ * Compact display formatter for contract numbers.
+ * Visual-only — does not mutate or truncate the original data.
+ *
+ * Example: "0824/2026/HĐQTGAN-PN/PR"
+ *   primary → "0824/2026"
+ *   suffix  → "PN/PR"
+ */
+function formatContractNoDisplay(contractNo: string): {
+  full: string;
+  primary: string;
+  suffix: string;
+} {
+  const value = String(contractNo || '').trim();
+  const parts = value.split('/');
+  // Primary = first two segments (e.g. 0824/2026)
+  const primary = parts.length >= 2 ? `${parts[0]}/${parts[1]}` : value;
+  // Suffix = everything after the year (e.g. HĐQTGAN-PN/PR → PN/PR)
+  const rawTail = parts.length >= 3 ? parts.slice(2).join('/') : '';
+  // Strip the domain prefix tag if present, show just the type+region suffix
+  const suffix = rawTail.replace(/^(HĐ[A-Z]+-?)/i, '');
+  return { full: value, primary, suffix };
+}
+
+function toContractRecord(item: ApiContractItem): ContractRecord {
+  const contractYearFromNo = (() => {
+    const parts = String(item.contract_no || '').split('/');
+    if (parts.length < 2) return 0;
+    const parsed = Number(parts[1]);
+    return Number.isFinite(parsed) ? parsed : 0;
+  })();
+
+  return {
+    id: Number(item.id),
+    contract_no: String(item.contract_no || ''),
+    contract_year: Number(item.contract_year || contractYearFromNo || 0),
+    don_vi_ten: String(item.customer_name || ''),
+    ten_bang_hieu: item.ten_bang_hieu || null,
+    dia_chi_su_dung: item.dia_chi_su_dung || '',
+    linh_vuc_hien_thi: String(item.domain || ''),
+    region_code: String(item.region_code || ''),
+    field_code: String(item.field_code || ''),
+    ngay_lap_hop_dong: String(item.created_at || ''),
+    ngay_bat_dau: String(item.start_date || ''),
+    ngay_ket_thuc: String(item.end_date || ''),
+    so_tien_value: item.so_tien_value ?? null,
+    renewal_status: (item.renewal_status as ContractRecord['renewal_status']) ?? null,
+    is_renewable: item.is_renewable ?? false,
+    loai_hinh_karaoke: item.loai_hinh_karaoke || null,
+    tong_so_phong: item.tong_so_phong ?? null,
+    tong_so_box: item.tong_so_box ?? null,
+    // Phase 2 simplified royalty fields (canonical source)
+    royalty_amount_before_vat: item.royalty_amount_before_vat ?? null,
+    vat_rate: item.vat_rate ?? null,
+    vat_amount: item.vat_amount ?? null,
+    royalty_amount_after_vat: item.royalty_amount_after_vat ?? null,
+    // Phase 2: Music usage areas
+    music_usage_areas: item.music_usage_areas ?? null,
+  };
+}
+
+export function ContractsListPage({
+  onNavigate,
+  onOpenDetail,
+  onPrintCertificate,
+  onCreateNew,
+}: {
+  onNavigate: (k: RouteKey) => void;
+  onOpenDetail: (id: number) => void;
+  onPrintCertificate?: (contractId: number) => void;
+  /** Callback when user clicks "Tạo hợp đồng mới" - receives the latest contract for pre-populating */
+  onCreateNew?: (latestContract: ContractRecord | undefined) => void;
+}) {
+  // Auth
+  const { currentUser, hasPermission } = useAuth();
+  const canEdit = hasPermission('contracts.update');
+  const canDelete = hasPermission('contracts.delete');
+
+  // Filter state
+  const [keyword, setKeyword] = useState('');
+  const [year, setYear] = useState('');
+  const [linhVuc, setLinhVuc] = useState('');
+  const [status, setStatus] = useState<StatusFilter | ''>('');
+  const [fieldCode, setFieldCode] = useState('');
+  // Selection
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Loading
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [contracts, setContracts] = useState<ContractRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  // KPI stats from real API (SummaryHero + MetricStrip)
+  const [summaryStats, setSummaryStats] = useState<ContractsSummaryStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  // Status tab counts derived from API data already loaded
+  const pendingRenewal: number = (() => {
+    if (!summaryStats) return 0;
+    const s = summaryStats as unknown as Record<string, unknown>;
+    return typeof s.pendingRenewal === 'number' ? (s.pendingRenewal as number) : 0;
+  })();
+  const statsActive = summaryStats?.active ?? 0;
+  const statsRenewalSoon = summaryStats?.expiringIn30Days ?? 0;
+  const statsPending = pendingRenewal;
+  const statsExpired = summaryStats?.expired ?? 0;
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
+  const [reloadTick, setReloadTick] = useState(0);
+  // Density toggle (UI only, no API impact)
+  const [density, setDensity] = useState<'compact' | 'mid' | 'detail'>('compact');
+  const cellPad = density === 'compact' ? 'px-3 py-1.5' : density === 'mid' ? 'px-3.5 py-2' : 'px-4 py-3';
+  const firstCellPad = density === 'compact' ? 'pl-4 pr-2 py-1.5' : density === 'mid' ? 'pl-5 pr-2 py-2' : 'pl-5 pr-2 py-3';
+  const unitClamp = density === 'compact' ? 'line-clamp-2' : density === 'mid' ? 'line-clamp-2' : 'line-clamp-3';
+  const signClamp = density === 'compact' ? 'line-clamp-1' : density === 'mid' ? 'line-clamp-2' : 'line-clamp-2';
+  const addrClamp = density === 'compact' ? 'line-clamp-2' : density === 'mid' ? 'line-clamp-3' : 'line-clamp-4';
+  const areasShown = density === 'compact' ? 1 : 2;
+
+  // Action modal state (Xuất Word / Xem dữ liệu GCN / Xóa)
+  const [actionModal, setActionModal] = useState<{
+    contractId: number;
+    contractNo: string;
+    customerName: string;
+    domain: string;
+    action: 'word_preview' | 'gcn_context' | 'delete_confirm' | 'delete_result' | null;
+    loading: boolean;
+    error: string;
+    wordResult: ExportPreviewResult | null;
+    gcnResult: CertificateContextResult | null;
+    deleteResult: DeleteContractCloneOnlyResult | null;
+  }>({
+    contractId: 0,
+    contractNo: '',
+    customerName: '',
+    domain: '',
+    action: null,
+    loading: false,
+    error: '',
+    wordResult: null,
+    gcnResult: null,
+    deleteResult: null,
+  });
+  const hasActiveFilter =
+  !!keyword || !!year || !!linhVuc || !!status || !!fieldCode;
+  const totalRows = contracts.length;
+  const rangeFrom = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeTo = total === 0 ? 0 : Math.min(page * pageSize, total);
+  const visibleIds = contracts.map((r) => r.id);
+  const allSelected =
+  visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someSelected = !allSelected && visibleIds.some((id) => selected.has(id));
+  const toggleAll = () => {
+    if (allSelected) setSelected(new Set());else
+    setSelected(new Set(visibleIds));
+  };
+  const toggleOne = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);else
+      next.add(id);
+      return next;
+    });
+  };
+  const clearFilters = () => {
+    setKeyword('');
+    setYear('');
+    setLinhVuc('');
+    setStatus('');
+    setFieldCode('');
+    setPage(1);
+    setSelected(new Set());
+  };
+  const triggerRefresh = () => {
+    setReloadTick((v) => v + 1);
+  };
+
+  // --- Row action handlers ---
+  const openWordPreview = async (r: ContractRecord) => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+    setActionModal({
+      contractId: r.id,
+      contractNo: r.contract_no,
+      customerName: r.don_vi_ten,
+      domain: r.linh_vuc_hien_thi,
+      action: 'word_preview',
+      loading: true,
+      error: '',
+      wordResult: null,
+      gcnResult: null,
+      deleteResult: null,
+    });
+    try {
+      const result = await exportDocxPreview(token, r.id, { include_blocks: true });
+      setActionModal((prev) => ({ ...prev, loading: false, wordResult: result, error: result.ok ? '' : 'Preview that bai' }));
+    } catch (err: any) {
+      setActionModal((prev) => ({ ...prev, loading: false, error: String(err?.message || 'Loi khi tao Word preview') }));
+    }
+  };
+
+  const openGcnContext = async (r: ContractRecord) => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+    setActionModal({
+      contractId: r.id,
+      contractNo: r.contract_no,
+      customerName: r.don_vi_ten,
+      domain: r.linh_vuc_hien_thi,
+      action: 'gcn_context',
+      loading: true,
+      error: '',
+      wordResult: null,
+      gcnResult: null,
+      deleteResult: null,
+    });
+    try {
+      const result = await getCertificateContextDryRun(token, r.id);
+      setActionModal((prev) => ({ ...prev, loading: false, gcnResult: result, error: result.ok ? '' : 'Khong lay duoc du lieu GCN' }));
+    } catch (err: any) {
+      setActionModal((prev) => ({ ...prev, loading: false, error: String(err?.message || 'Loi khi lay du lieu GCN') }));
+    }
+  };
+
+  const openDeleteConfirm = (r: ContractRecord) => {
+    setActionModal({
+      contractId: r.id,
+      contractNo: r.contract_no,
+      customerName: r.don_vi_ten,
+      domain: r.linh_vuc_hien_thi,
+      action: 'delete_confirm',
+      loading: false,
+      error: '',
+      wordResult: null,
+      gcnResult: null,
+      deleteResult: null,
+    });
+  };
+
+  const confirmDelete = async () => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+    setActionModal((prev) => ({ ...prev, loading: true, error: '' }));
+    try {
+      const result = await deleteContractCloneOnly(token, actionModal.contractId);
+      setActionModal((prev) => ({ ...prev, loading: false, deleteResult: result, action: 'delete_result', error: result.ok ? '' : result.message }));
+      // Auto reload list after successful delete
+      if (result.ok) {
+        setTimeout(() => {
+          closeActionModal();
+          triggerRefresh();
+        }, 1500);
+      }
+    } catch (err: any) {
+      const msg = String(err?.message || 'Loi khi xoa');
+      if (msg.includes('405') || msg.toLowerCase().includes('method not allowed')) {
+        setActionModal((prev) => ({
+          ...prev,
+          loading: false,
+          action: 'delete_result',
+          deleteResult: {
+            ok: false,
+            mode: 'endpoint_missing',
+            message: 'Backend chua co DELETE endpoint dung path/method. Endpoint: DELETE /api/contracts/{id}',
+            write_performed: false,
+            contract_id: actionModal.contractId,
+            contract_no: actionModal.contractNo,
+            deleted_contract_records: 0,
+            deleted_certificate_records: 0,
+            deleted_related_rows: 0,
+            old_db_touched: false,
+            blocked_final_certificates: 0,
+            admin_delete_any_enabled: false,
+            permission_used: null,
+            warnings: [],
+            errors: [{ field: 'http', message: '405 Method Not Allowed' }],
+          },
+          error: '',
+        }));
+      } else if (msg.includes('403') || msg.toLowerCase().includes('forbidden') || msg.toLowerCase().includes('flag off')) {
+        setActionModal((prev) => ({
+          ...prev,
+          loading: false,
+          action: 'delete_result',
+          deleteResult: {
+            ok: false,
+            mode: 'forbidden',
+            message: 'Chua bat DELETE_CONTRACT_MAIN_DB_ENABLED. Khong the xoa du lieu tren DB chinh.',
+            write_performed: false,
+            contract_id: actionModal.contractId,
+            contract_no: actionModal.contractNo,
+            deleted_contract_records: 0,
+            deleted_certificate_records: 0,
+            deleted_related_rows: 0,
+            old_db_touched: false,
+            blocked_final_certificates: 0,
+            admin_delete_any_enabled: false,
+            permission_used: null,
+            warnings: [],
+            errors: [{ field: 'permission', message: '403 Forbidden / Flag disabled' }],
+          },
+          error: '',
+        }));
+      } else {
+        setActionModal((prev) => ({
+          ...prev,
+          loading: false,
+          action: 'delete_result',
+          deleteResult: {
+            ok: false,
+            mode: 'error',
+            message: msg,
+            write_performed: false,
+            contract_id: actionModal.contractId,
+            contract_no: actionModal.contractNo,
+            deleted_contract_records: 0,
+            deleted_certificate_records: 0,
+            deleted_related_rows: 0,
+            old_db_touched: false,
+            blocked_final_certificates: 0,
+            admin_delete_any_enabled: false,
+            permission_used: null,
+            warnings: [],
+            errors: [{ field: 'catch', message: msg }],
+          },
+          error: '',
+        }));
+      }
+    }
+  };
+
+  const isSafeTestRecord = (r: ContractRecord) => {
+    const prefix = ['CLONE-NEWAPP-', 'TEST-NEWAPP-', 'MAKE-HD-', 'OLDAPP-DIRECT-', 'OLDAPP-FLOW-', 'UI-WORD-FALLBACK-', 'SMOKE-', 'MAKE-HD-SMOKE-', 'UI-TEST-', 'DELETE-TEST-'];
+    return prefix.some(p => r.contract_no.toUpperCase().startsWith(p));
+  };
+
+  const closeActionModal = () => {
+    setActionModal({
+      contractId: 0,
+      contractNo: '',
+      customerName: '',
+      domain: '',
+      action: null,
+      loading: false,
+      error: '',
+      wordResult: null,
+      gcnResult: null,
+      deleteResult: null,
+    });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadContracts() {
+      setLoading(true);
+      setError('');
+      try {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+          throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
+        }
+        const data = await getContracts(token, {
+          page,
+          page_size: pageSize,
+          q: keyword.trim() || undefined,
+          domain: (linhVuc || fieldCode || '').trim() || undefined,
+          status: status || undefined,
+          year: year || undefined
+        });
+        if (cancelled) return;
+        setContracts(data.items.map(toContractRecord));
+        setTotal(data.total || 0);
+        setTotalPages(data.total_pages || 0);
+        setSelected((prev) => {
+          const allowed = new Set(data.items.map((x) => Number(x.id)));
+          const next = new Set<number>();
+          prev.forEach((id) => {
+            if (allowed.has(id)) next.add(id);
+          });
+          return next;
+        });
+      } catch (err: any) {
+        if (cancelled) return;
+        setContracts([]);
+        setTotal(0);
+        setTotalPages(0);
+        setError(String(err?.message || 'Không tải được danh sách hợp đồng.'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadContracts();
+    return () => {
+      cancelled = true;
+    };
+  }, [keyword, year, linhVuc, fieldCode, status, page, pageSize, reloadTick]);
+
+  // Fetch KPI summary stats from real API
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSummaryStats() {
+      setStatsLoading(true);
+      try {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+          if (!cancelled) setStatsLoading(false);
+          return;
+        }
+        const stats = await getContractsSummary(token);
+        if (!cancelled) setSummaryStats(stats);
+      } catch {
+        if (!cancelled) setSummaryStats(null);
+      } finally {
+        if (!cancelled) setStatsLoading(false);
+      }
+    }
+    loadSummaryStats();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadTick]);
+  return (
+    <Page>
+      <EnterprisePage>
+      <PageHeader
+        breadcrumb="/bg/contracts"
+        title="Hợp đồng"
+        description="Quản lý hợp đồng Background/Karaoke đã ký, bản nháp và trạng thái hiệu lực."
+        actions={
+        <>
+            <Button
+            variant="secondary"
+            leftIcon={<RefreshCwIcon className="h-4 w-4" />}
+            onClick={triggerRefresh}>
+              Làm mới
+            </Button>
+            <Button
+            variant="primary"
+            leftIcon={<FilePlusIcon className="h-4 w-4" />}
+            onClick={() => {
+              if (onCreateNew && contracts.length > 0) {
+                onCreateNew(contracts[0]);
+              }
+              onNavigate('contracts.create');
+            }}>
+              Tạo hợp đồng
+            </Button>
+          </>
+        } />
+
+      {/* Compact page header — Magic style */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold text-zinc-900 tracking-tight">Quản lý Hợp đồng</h1>
+          <p className="text-sm text-zinc-500 mt-0.5">Danh sách hợp đồng trên workspace Background Music.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<FilePlusIcon className="h-4 w-4" />}
+            onClick={() => onNavigate('contracts.create')}
+          >
+            Tạo hợp đồng
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<RefreshCwIcon className="h-4 w-4" />}
+            onClick={triggerRefresh}
+            disabled={loading}
+          >
+          </Button>
+        </div>
+      </div>
+
+      {/* Status tab bar — Magic-style workspace tabs */}
+      <div className="vc-workspace-tabs">
+        {statusTabs.map((tab) => (
+          <button
+            key={tab.value}
+            type="button"
+            className={`vc-workspace-tabs__item${activeTabValue === tab.value ? ' is-active' : ''}`}
+            onClick={() => handleTabChange(tab.value)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      
+
+      <FilterBar
+        hasActive={hasActiveFilter}
+        onClear={clearFilters}
+        error={error}
+        resultSummary={
+          error ? undefined : (
+            <span>
+              Hiển thị{' '}
+              <span className="font-semibold text-zinc-900 tabular-nums">
+                {rangeFrom}–{rangeTo}
+              </span>{' '}
+              trong{' '}
+              <span className="font-semibold text-zinc-900 tabular-nums">
+                {formatNumber(total)}
+              </span>{' '}
+              hợp đồng
+            </span>
+          )
+        }>
+        
+        <FilterField label="Tìm kiếm" width="flex-1 min-w-[260px]">
+          <SearchBox
+            value={keyword}
+            onChange={(v) => {
+              setKeyword(v);
+              setPage(1);
+            }}
+            placeholder="Tìm số hợp đồng, đơn vị, bảng hiệu, địa chỉ…" />
+          
+        </FilterField>
+        <FilterField label="Năm" width="w-32">
+          <Select
+            value={year}
+            onChange={(v) => {
+              setYear(v);
+              setPage(1);
+            }}
+            options={CONTRACT_YEAR_OPTIONS}
+            placeholder="Tất cả" />
+          
+        </FilterField>
+        <FilterField label="Lĩnh vực" width="w-44">
+          <Select
+            value={linhVuc}
+            onChange={(v) => {
+              setLinhVuc(v);
+              setPage(1);
+            }}
+            options={LINH_VUC_OPTIONS}
+            placeholder="Tất cả" />
+          
+        </FilterField>
+        <FilterField label="Trạng thái" width="w-44">
+          <Select
+            value={status}
+            onChange={(v) => {
+              setStatus(v as StatusFilter | '');
+              setPage(1);
+            }}
+            options={STATUS_OPTIONS}
+            placeholder="Tất cả" />
+          
+        </FilterField>
+        <FilterField label="Mã quyền" width="w-40">
+          <Select
+            value={fieldCode}
+            onChange={(v) => {
+              setFieldCode(v);
+              setPage(1);
+            }}
+            options={FIELD_CODE_OPTIONS}
+            placeholder="Tất cả" />
+          
+        </FilterField>
+      </FilterBar>
+
+      <EnterpriseTableShell
+        title="Contracts workspace"
+        description="Giữ nguyên bộ lọc, phân trang, quyền và thao tác nghiệp vụ — chỉ nâng cấp lớp hiển thị dense enterprise."
+        className="vc-enterprise-contracts-shell"
+      >
+        {selected.size > 0 && (
+          <BulkActionBar
+            count={selected.size}
+            onClear={() => setSelected(new Set())}
+            actions={[
+            {
+              label: 'Tạo GCN hàng loạt',
+              icon: <AwardIcon className="h-3.5 w-3.5" />,
+              onClick: () => onNavigate('contracts.print'),
+              disabled: selected.size === 0,
+              disabledReason: selected.size === 0 ? 'Chọn ít nhất 1 hợp đồng Karaoke' : undefined,
+            }]
+            } />
+        )}
+        
+
+        {loading ?
+        <TableSkeleton rows={8} cols={6} /> :
+        error ?
+        <EmptyState
+          title="Khong tai duoc du lieu hop dong"
+          description={error}
+          action={
+          <Button variant="secondary" onClick={triggerRefresh}>
+                Thu lai
+              </Button>
+          }
+          icon={<XCircleIcon className="h-5 w-5" />} /> :
+        contracts.length === 0 ?
+        <EmptyState
+          title="Khong co du lieu hop dong"
+          description={
+          hasActiveFilter ?
+          "Thu dieu chinh tu khoa hoac xoa bo loc de xem lai danh sach." :
+          "Khong co du lieu hop dong theo quyen linh vuc cua tai khoan nay."
+          }
+          action={
+          <Button variant="secondary" onClick={clearFilters}>
+                Xóa bộ lọc
+              </Button>
+          }
+          icon={<XCircleIcon className="h-5 w-5" />} /> :
+
+
+        <>
+          <div className="vc-enterprise-table-toolbar">
+            <span className="vc-enterprise-table-toolbar-summary">
+              Hiển thị <strong>{formatNumber(totalRows)}</strong> dòng · trang <strong>{page}/{Math.max(totalPages, 1)}</strong>
+            </span>
+            <div className="ml-auto inline-flex rounded-md ring-1 ring-zinc-200 bg-white overflow-hidden text-[12px]">
+              {(['compact','mid','detail'] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDensity(d)}
+                  className={`px-2.5 py-0.5 transition-colors ${density === d ? 'bg-emerald-50 text-emerald-800 font-semibold' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                  aria-pressed={density === d}
+                >
+                  {d === 'compact' ? 'Gọn' : d === 'mid' ? 'Vừa' : 'Chi tiết'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+            <div className="vc-enterprise-table-scroll flex-1 min-h-0 overflow-hidden flex flex-col">
+            <table className="ds-page-table shrink-0">
+              <thead className="ds-page-table-header block">
+                <tr className="premium-table-head ds-page-table-head-row flex">
+                  <th className={`ds-page-table-head-cell w-10 ${firstCellPad} shrink-0`}>
+                    <Checkbox
+                    checked={allSelected}
+                    indeterminate={someSelected}
+                    onChange={toggleAll}
+                    ariaLabel="Chọn tất cả" />
+                  </th>
+                  <Th> Số hợp đồng</Th>
+                  <Th> Đơn vị / Bảng hiệu</Th>
+                  <Th> Địa chỉ sử dụng</Th>
+                  <Th> Lĩnh vực</Th>
+                  <Th> Ngày lập</Th>
+                  <Th> Hiệu lực</Th>
+                  <Th align="right"> Giá trị chưa GTGT</Th>
+                  <Th> Trạng thái</Th>
+                  <th className="ds-page-table-head-cell w-10 pr-3 shrink-0" />
+                </tr>
+              </thead>
+            </table>
+            <div className="ds-page-table-scroll-y">
+              <table className={`ds-page-table ${density === 'compact' ? 'ds-page-table-density-compact' : density === 'mid' ? 'ds-page-table-density-comfortable' : 'ds-page-table-density-detailed'}`}>
+                <tbody className="ds-page-table-body">
+                {contracts.map((r) => {
+                const isSelected = selected.has(r.id);
+                const exp = getExpiryStatus(r.ngay_ket_thuc);
+                const renewalKey = r.renewal_status ?? 'UNKNOWN';
+                const renewalTone =
+                renewalKey === 'NEW' ?
+                'violet' :
+                renewalKey === 'PENDING_RENEWAL' ?
+                'orange' :
+                renewalKey === 'RENEWED' ?
+                'success' :
+                'neutral';
+                const areas = r.music_usage_areas ?? [];
+                const areaTooltip = areas.length > 0
+                  ? areas.map((a, i) =>
+                      `${i + 1}. ${a.area_name || '(không có tên)'}${a.scale_description ? ` — ${a.scale_description}` : ''}${a.music_usage_type ? ` · ${a.music_usage_type}` : ''}`
+                    ).join('\n')
+                  : '';
+                return (
+                  <tr
+                    key={r.id}
+                    onClick={() => onOpenDetail(r.id)}
+                    className={`ds-page-table-row group/row relative cursor-pointer ${isSelected ? 'ds-page-table-row-selected row-selected-premium' : 'row-hover-premium'}`}>
+                    
+                      {/* Selection cell + left bar */}
+                      <td className={`ds-page-table-cell relative ${firstCellPad} align-top`}>
+                        <span
+                        aria-hidden
+                        className={`absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-[#c89968] via-[#9c6d3e] to-[#0d7a5f] transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-90'}`} />
+                      
+                        <Checkbox
+                        checked={isSelected}
+                        onChange={() => toggleOne(r.id)}
+                        ariaLabel={`Chọn ${r.contract_no}`} />
+                      
+                      </td>
+
+                      {/* Contract no — compact link style */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top`}>
+                        <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenDetail(r.id);
+                        }}
+                        title={r.contract_no}
+                        className="contract-no-chip block text-left">
+                          {(() => {
+                            const { primary, suffix, full } = formatContractNoDisplay(r.contract_no);
+                            return (
+                              <EnterpriseContractNoCell
+                                primary={primary}
+                                secondary={suffix && suffix !== full ? suffix : undefined}
+                              />
+                            );
+                          })()}
+                        </button>
+                      </td>
+
+                      {/* Đơn vị + bảng hiệu */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top max-w-[280px]`}>
+                        <EnterpriseCustomerCell
+                          name={r.don_vi_ten}
+                          secondary={r.ten_bang_hieu ? (
+                            <span
+                              className={`whitespace-normal break-words ${signClamp}`}
+                              title={r.ten_bang_hieu}
+                            >
+                              {r.ten_bang_hieu}
+                            </span>
+                          ) : undefined}
+                        />
+                      </td>
+
+                      {/* Địa chỉ */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top max-w-[260px]`}>
+                        <EnterpriseLocationCell>
+                          <p
+                            className={`whitespace-normal break-words ${addrClamp}`}
+                            title={r.dia_chi_su_dung}
+                          >
+                            {r.dia_chi_su_dung}
+                          </p>
+                        </EnterpriseLocationCell>
+                      </td>
+
+                      {/* Lĩnh vực — summarized */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top max-w-[260px]`}>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-zinc-700 text-[13px] font-medium whitespace-normal break-words">
+                            {r.linh_vuc_hien_thi}
+                          </span>
+                          {areas.length > 0 ? (
+                            <EnterpriseUsageChips
+                              items={areas.slice(0, areasShown).map((area) => area.area_name || area.scale_description || area.music_usage_type || '—')}
+                              extra={areas.length > areasShown ? <span title={areaTooltip}>{`+${areas.length - areasShown}`}</span> : undefined}
+                              detail={
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onOpenDetail(r.id); }}
+                                  className="usage-detail-link"
+                                >
+                                  Chi tiết
+                                </button>
+                              }
+                            />
+                          ) : (
+                            r.loai_hinh_karaoke && (
+                              <span className="usage-area-chip">
+                                {r.loai_hinh_karaoke}
+                                {r.tong_so_phong != null && (
+                                  <>
+                                    <span className="text-fg-subtle mx-0.5">·</span>
+                                    <span className="font-semibold tabular-nums">
+                                      {r.tong_so_phong} phòng
+                                    </span>
+                                  </>
+                                )}
+                              </span>
+                            )
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Ngày lập */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top text-zinc-700 tabular-nums whitespace-nowrap text-[13px]`}>
+                        {formatDate(r.ngay_lap_hop_dong)}
+                      </td>
+
+                      {/* Hiệu lực */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top whitespace-nowrap`}>
+                        <p className="text-zinc-700 tabular-nums text-[13px]">
+                          {formatDate(r.ngay_bat_dau)}
+                        </p>
+                        <p className="text-zinc-500 tabular-nums text-[12px]">
+                          → {formatDate(r.ngay_ket_thuc)}
+                        </p>
+                      </td>
+
+                      {/* Giá trị chưa GTGT */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top text-right tabular-nums whitespace-nowrap`}>
+                        <EnterpriseAmountCell amount={r.royalty_amount_before_vat} />
+                      </td>
+
+                      {/* Trạng thái — compact: single primary pill */}
+                      <td className={`ds-page-table-cell ${cellPad} align-top`}>
+                        {density === 'compact' ? (
+                          <div className="flex items-center gap-1 flex-wrap" title={`${RENEWAL_LABEL[renewalKey]}${exp.status === 'expiring' ? ` · còn ${exp.daysLeft} ngày` : ''}`}>
+                            {exp.status === 'active' && (
+                              <StatusBadge tone="success" dot compact>Hiệu lực</StatusBadge>
+                            )}
+                            {exp.status === 'expiring' && (
+                              <StatusBadge tone="warning" dot compact>Sắp hết · {exp.daysLeft}d</StatusBadge>
+                            )}
+                            {exp.status === 'expired' && (
+                              <StatusBadge tone="danger" dot compact>Hết hạn</StatusBadge>
+                            )}
+                          </div>
+                        ) : (
+                          <EnterpriseStatusPair
+                            primary={
+                              exp.status === 'active' ? (
+                                <StatusBadge tone="success" dot>Còn hiệu lực</StatusBadge>
+                              ) : exp.status === 'expiring' ? (
+                                <StatusBadge tone="warning" dot>Sắp hết · {exp.daysLeft}d</StatusBadge>
+                              ) : (
+                                <StatusBadge tone="danger" dot>Hết hạn</StatusBadge>
+                              )
+                            }
+                            secondary={
+                              <StatusBadge tone={renewalTone}>
+                                {RENEWAL_LABEL[renewalKey]}
+                              </StatusBadge>
+                            }
+                          />
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="pr-3 pl-1 align-top text-right">
+                        <RowActionsMenu
+                        actions={[
+                        {
+                          label: 'Xem chi tiết',
+                          icon: <EyeIcon className="h-4 w-4" />,
+                          onClick: () => onOpenDetail(r.id)
+                        },
+                        {
+                          label: 'Chỉnh sửa',
+                          icon: <PencilIcon className="h-4 w-4" />,
+                          onClick: () => onOpenDetail(r.id),
+                          disabled: !canEdit,
+                          disabledReason: !canEdit ? 'Không có quyền chỉnh sửa' : undefined,
+                        },
+                        {
+                          label: 'Xuất Word',
+                          icon: <FileDownIcon className="h-4 w-4" />,
+                          onClick: () => openWordPreview(r),
+                          disabled: r.linh_vuc_hien_thi !== 'Karaoke',
+                          disabledReason: r.linh_vuc_hien_thi !== 'Karaoke' ? 'Chỉ hỗ trợ Karaoke' : undefined,
+                        },
+                        {
+                          label: 'Xem dữ liệu GCN',
+                          icon: <AwardIcon className="h-4 w-4" />,
+                          onClick: () => openGcnContext(r),
+                          disabled: r.linh_vuc_hien_thi !== 'Karaoke',
+                          disabledReason: r.linh_vuc_hien_thi !== 'Karaoke' ? 'Chỉ hỗ trợ Karaoke' : undefined,
+                        },
+                        {
+                          label: 'Tạo GCN',
+                          icon: <AwardIcon className="h-4 w-4" />,
+                          onClick: () => onPrintCertificate ? onPrintCertificate(r.id) : onNavigate('contracts.print'),
+                          disabled: r.linh_vuc_hien_thi !== 'Karaoke',
+                          disabledReason: r.linh_vuc_hien_thi !== 'Karaoke' ? 'Chỉ hỗ trợ Karaoke' : undefined,
+                        },
+                        {
+                          label: 'In / Gui',
+                          icon: <PrinterIcon className="h-4 w-4" />,
+                          onClick: () => onNavigate('contracts.print'),
+                        },
+                        {
+                          divider: true,
+                          label: 'Xóa',
+                          icon: <Trash2Icon className="h-4 w-4" />,
+                          tone: 'danger',
+                          onClick: () => openDeleteConfirm(r),
+                          disabled: !canDelete,
+                          disabledReason: !canDelete ? 'Không có quyền xóa' : undefined,
+                        }]
+                        } />
+                      
+                      </td>
+                    </tr>);
+
+              })}
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </>
+        }
+
+        {!loading && contracts.length > 0 &&
+        <Pagination
+          page={page}
+          totalPages={Math.max(totalPages, 1)}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => {
+            setPageSize(s);
+            setPage(1);
+          }}
+          total={total}
+          rangeFrom={rangeFrom}
+          rangeTo={rangeTo} />
+
+        }
+      </EnterpriseTableShell>
+
+      {/* ============================================================ */}
+      {/* ACTION MODAL (Xuất Word / Xem dữ liệu GCN / Xóa) */}
+      {/* ============================================================ */}
+      {actionModal.action && (
+        <Modal
+          open
+          onClose={closeActionModal}
+          title={
+            actionModal.action === 'word_preview'
+              ? `Word preview — ${actionModal.contractNo}`
+              : actionModal.action === 'gcn_context'
+              ? `Dữ liệu GCN — ${actionModal.contractNo}`
+              : actionModal.action === 'delete_confirm'
+              ? `Xác nhận xóa — ${actionModal.contractNo}`
+              : actionModal.action === 'delete_result'
+              ? `Kết quả xóa — ${actionModal.contractNo}`
+              : `Hành động — ${actionModal.contractNo}`
+          }
+          size="lg"
+        >
+          <div className="space-y-4">
+
+            {/* Loading */}
+            {actionModal.loading && (
+              <div className="flex items-center gap-3 py-8 justify-center">
+                <LoaderIcon className="h-5 w-5 animate-spin text-amber-700" />
+                <span className="text-sm text-zinc-600">Đang xử lý...</span>
+              </div>
+            )}
+
+            {/* Error */}
+            {actionModal.error && !actionModal.loading && (
+              <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-600/15">
+                <div className="flex items-start gap-2">
+                  <XCircleIcon className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{actionModal.error}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Word Preview Result */}
+            {actionModal.action === 'word_preview' && actionModal.wordResult && (
+              <div className="space-y-3">
+                <div className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm ${actionModal.wordResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                  {actionModal.wordResult.ok ? (
+                    <CheckCircle2Icon className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <XCircleIcon className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="font-semibold">
+                    {actionModal.wordResult.ok
+                      ? 'Word preview tạo thành công'
+                      : 'Preview thất bại hoặc domain không được hỗ trợ'}
+                  </span>
+                </div>
+
+                {actionModal.wordResult.ok && (
+                  <div className="rounded-lg bg-zinc-50 p-4 text-xs space-y-2">
+                    {actionModal.wordResult.preview_path && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-zinc-500 shrink-0">File:</span>
+                        <span className="font-mono font-medium text-zinc-800 break-all"
+                          title={actionModal.wordResult.preview_path || ''}>
+                          {actionModal.wordResult.preview_path}
+                        </span>
+                      </div>
+                    )}
+                    {actionModal.wordResult.file_size && (
+                      <div>
+                        <span className="text-zinc-500">Size:</span>{' '}
+                        <span className="font-medium">{(actionModal.wordResult.file_size / 1024).toFixed(1)} KB</span>
+                      </div>
+                    )}
+                    {actionModal.wordResult.domain_label && (
+                      <div>
+                        <span className="text-zinc-500">Domain:</span>{' '}
+                        <span className="font-medium">{actionModal.wordResult.domain_label}</span>
+                      </div>
+                    )}
+
+                    <div className="border-t border-zinc-200 pt-2 mt-2 space-y-1">
+                      <div>
+                        <span className="text-zinc-500">db_write:</span>{' '}
+                        <span className={actionModal.wordResult.db_write_performed ? 'text-rose-600 font-bold' : 'text-emerald-600'}>
+                          {actionModal.wordResult.db_write_performed ? 'YES ⚠️' : 'NO ✓'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">docx_path attach:</span>{' '}
+                        <span className={actionModal.wordResult.docx_path_attached ? 'text-rose-600 font-bold' : 'text-emerald-600'}>
+                          {actionModal.wordResult.docx_path_attached ? 'YES ⚠️' : 'NO ✓'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">official_export:</span>{' '}
+                        <span className={actionModal.wordResult.official_export ? 'text-rose-600 font-bold' : 'text-emerald-600'}>
+                          {actionModal.wordResult.official_export ? 'YES ⚠️' : 'NO ✓'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {actionModal.wordResult.warnings && actionModal.wordResult.warnings.length > 0 && (
+                      <div className="border-t border-zinc-200 pt-2 mt-2">
+                        <span className="text-zinc-500">Warnings:</span>
+                        <div className="mt-1 space-y-0.5">
+                          {actionModal.wordResult.warnings.map((w, i) => (
+                            <p key={i} className="text-amber-600">- {w}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* GCN Context Result */}
+            {actionModal.action === 'gcn_context' && actionModal.gcnResult && (
+              <div className="space-y-3">
+                <div className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm ${actionModal.gcnResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                  {actionModal.gcnResult.ok ? (
+                    <CheckCircle2Icon className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <XCircleIcon className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="font-semibold">
+                    {actionModal.gcnResult.ok
+                      ? 'Dữ liệu GCN sẵn sàng'
+                      : 'Không lấy được dữ liệu GCN'}
+                  </span>
+                </div>
+
+                {actionModal.gcnResult.ok && (
+                  <div className="rounded-lg bg-zinc-50 p-4 text-xs space-y-2">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                      <div>
+                        <span className="text-zinc-500">Số HĐ:</span>{' '}
+                        <span className="font-medium">{actionModal.gcnResult.context.contract_no}</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">Số GCN:</span>{' '}
+                        <span className="font-medium">
+                          {actionModal.gcnResult.context.certificate_no || '(chưa có)'}
+                        </span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-zinc-500">Tên đơn vị:</span>{' '}
+                        <span className="font-medium">{actionModal.gcnResult.context.organization_name}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-zinc-500">Địa chỉ:</span>{' '}
+                        <span className="font-medium">{actionModal.gcnResult.context.address || '(chưa có)'}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-zinc-500">Địa điểm kinh doanh:</span>{' '}
+                        <span className="font-medium">{actionModal.gcnResult.context.business_location || '(chưa có)'}</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">Hiệu lực từ:</span>{' '}
+                        <span className="font-medium">{actionModal.gcnResult.context.effective_from || '(chưa có)'}</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">Hiệu lực đến:</span>{' '}
+                        <span className="font-medium">{actionModal.gcnResult.context.effective_to || '(chưa có)'}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-zinc-500">Trạng thái GCN:</span>{' '}
+                        <span className="font-medium">{actionModal.gcnResult.context.mode}</span>
+                      </div>
+                    </div>
+
+                    {/* Scope columns */}
+                    <div className="border-t border-zinc-200 pt-2 mt-2 space-y-1">
+                      <span className="text-zinc-500">Phạm vi GCN (3 cột):</span>
+                      {actionModal.gcnResult.context.gcn_scope_col_1_text && (
+                        <div className="bg-white rounded px-2 py-1 text-zinc-700">Col 1: {actionModal.gcnResult.context.gcn_scope_col_1_text}</div>
+                      )}
+                      {actionModal.gcnResult.context.gcn_scope_col_2_text && (
+                        <div className="bg-white rounded px-2 py-1 text-zinc-700">Col 2: {actionModal.gcnResult.context.gcn_scope_col_2_text}</div>
+                      )}
+                      {actionModal.gcnResult.context.gcn_scope_col_3_text && (
+                        <div className="bg-white rounded px-2 py-1 text-zinc-700">Col 3: {actionModal.gcnResult.context.gcn_scope_col_3_text}</div>
+                      )}
+                    </div>
+
+                    {/* Safety flags */}
+                    <div className="border-t border-zinc-200 pt-2 mt-2 space-y-1">
+                      <div>
+                        <span className="text-zinc-500">write_performed:</span>{' '}
+                        <span className={actionModal.gcnResult.write_performed ? 'text-rose-600 font-bold' : 'text-emerald-600'}>
+                          {actionModal.gcnResult.write_performed ? 'YES ⚠️' : 'NO ✓'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">print_enabled:</span>{' '}
+                        <span className={actionModal.gcnResult.print_enabled ? 'text-amber-600 font-bold' : 'text-zinc-400'}>
+                          {String(actionModal.gcnResult.print_enabled)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">qr_generation_enabled:</span>{' '}
+                        <span className={actionModal.gcnResult.qr_generation_enabled ? 'text-amber-600 font-bold' : 'text-zinc-400'}>
+                          {String(actionModal.gcnResult.qr_generation_enabled)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">locked_layout:</span>{' '}
+                        <span className="text-emerald-600">LOCKED ✓</span>
+                      </div>
+                    </div>
+
+                    {actionModal.gcnResult.context.warnings && actionModal.gcnResult.context.warnings.length > 0 && (
+                      <div className="border-t border-zinc-200 pt-2 mt-2">
+                        <span className="text-zinc-500">Warnings:</span>
+                        <div className="mt-1 space-y-0.5">
+                          {actionModal.gcnResult.context.warnings.map((w, i) => (
+                            <p key={i} className="text-amber-600">- {w}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Delete Confirm */}
+            {actionModal.action === 'delete_confirm' && !actionModal.loading && (
+              <div className="space-y-3">
+                <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-600/20">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangleIcon className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div>
+                      {currentUser?.role === 'super_admin' ? (
+                        <>
+                          <p className="font-semibold">Xác nhận xóa vĩnh viễn khỏi DB chính</p>
+                          <p className="mt-1 text-xs text-amber-700">
+                            Hợp đồng: <strong>{actionModal.contractNo}</strong>
+                          </p>
+                          <p className="mt-0.5 text-xs text-amber-700">
+                            ID: <strong>{actionModal.contractId}</strong>
+                          </p>
+                          <p className="mt-0.5 text-xs text-amber-700">
+                            Đơn vị: <strong>{actionModal.customerName || '(không rõ)'}</strong>
+                          </p>
+                          <p className="mt-2 text-xs text-amber-700 font-semibold">
+                            Admin đang xóa record khỏi DB chính. Thao tác này không thể hoàn tác.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold">Xác nhận xóa hợp đồng này?</p>
+                          <p className="mt-1 text-xs text-amber-700">
+                            Hợp đồng: <strong>{actionModal.contractNo}</strong>
+                          </p>
+                          <p className="mt-2 text-xs text-amber-700">
+                            Thao tác này không thể hoàn tác.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="secondary" onClick={closeActionModal}>Hủy</Button>
+                  <Button variant="primary" tone="danger" onClick={confirmDelete}
+                    leftIcon={<Trash2Icon className="h-4 w-4" />}
+                  >
+                    {currentUser?.role === 'super_admin' ? 'Xóa vĩnh viễn' : 'Xác nhận xóa'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Delete Result */}
+            {actionModal.action === 'delete_result' && actionModal.deleteResult && (
+              <div className="space-y-3">
+                <div className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm ${actionModal.deleteResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                  {actionModal.deleteResult.ok ? (
+                    <CheckCircle2Icon className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <XCircleIcon className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="font-semibold">
+                    {actionModal.deleteResult.ok
+                      ? 'Xóa thành công'
+                      : 'Xóa thất bại'}
+                  </span>
+                </div>
+
+                {actionModal.deleteResult.ok && (
+                  <div className="rounded-lg bg-zinc-50 p-4 text-xs space-y-2">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                      <div><span className="text-zinc-500">contract_id:</span> <span className="font-medium">{actionModal.deleteResult.contract_id}</span></div>
+                      <div><span className="text-zinc-500">contract_no:</span> <span className="font-medium">{actionModal.deleteResult.contract_no}</span></div>
+                      <div><span className="text-zinc-500">deleted_contract_records:</span> <span className="font-medium">{actionModal.deleteResult.deleted_contract_records}</span></div>
+                      <div><span className="text-zinc-500">deleted_certificate_records:</span> <span className="font-medium">{actionModal.deleteResult.deleted_certificate_records}</span></div>
+                      <div><span className="text-zinc-500">mode:</span> <span className="font-medium">{actionModal.deleteResult.mode}</span></div>
+                      <div><span className="text-zinc-500">permission_used:</span> <span className="font-medium">{actionModal.deleteResult.permission_used || '-'}</span></div>
+                    </div>
+                    <div className="border-t border-zinc-200 pt-2 mt-2 space-y-1">
+                      <div>
+                        <span className="text-zinc-500">write_performed:</span>{' '}
+                        <span className={actionModal.deleteResult.write_performed ? 'text-rose-600 font-bold' : 'text-emerald-600'}>
+                          {actionModal.deleteResult.write_performed ? 'YES ⚠️' : 'NO ✓'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">old_db_touched:</span>{' '}
+                        <span className={actionModal.deleteResult.old_db_touched ? 'text-rose-600 font-bold' : 'text-emerald-600'}>
+                          {actionModal.deleteResult.old_db_touched ? 'YES ⚠️' : 'NO ✓'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">admin_delete_any:</span>{' '}
+                        <span className={actionModal.deleteResult.admin_delete_any_enabled ? 'text-amber-700 font-semibold' : 'text-zinc-500'}>
+                          {actionModal.deleteResult.admin_delete_any_enabled ? 'TRUE' : 'FALSE'}
+                        </span>
+                      </div>
+                    </div>
+                    {actionModal.deleteResult.warnings && actionModal.deleteResult.warnings.length > 0 && (
+                      <div className="border-t border-zinc-200 pt-2 mt-2 space-y-1">
+                        <span className="text-zinc-500">Warnings:</span>
+                        {actionModal.deleteResult.warnings.map((w, i) => (
+                          <p key={i} className="text-amber-600">- {w}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!actionModal.deleteResult.ok && (
+                  <div className="rounded-lg bg-rose-50 p-3 text-xs text-rose-700">
+                    <p className="font-semibold">Không thể xóa hợp đồng này.</p>
+                    <p className="mt-1">{actionModal.deleteResult.message}</p>
+                    {actionModal.deleteResult.mode === 'main_db_disabled' && (
+                      <p className="mt-1 text-rose-600">
+                        Liên hệ admin để bật chức năng xóa trên DATABASE chính.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Close button */}
+            <div className="flex justify-end pt-2 border-t border-zinc-200">
+              <Button variant="secondary" leftIcon={<XIcon className="h-4 w-4" />} onClick={closeActionModal}>
+                Đóng
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      </EnterprisePage>
+    </Page>);
+
+}
+function Th({
+  children,
+  align = 'left'
+}: {children: React.ReactNode;align?: 'left' | 'right' | 'center';}) {
+  return (
+    <th
+      className={`px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-700 shrink-0 text-left ${align === 'right' ? 'text-right pr-6' : align === 'center' ? 'text-center' : ''}`}>
+      {children}
+    </th>);
+}
